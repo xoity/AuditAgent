@@ -203,7 +203,30 @@ class EnforcementPlanner:
             device_actions = self.plan_device_enforcement(policy, device_result)
             actions.extend(device_actions)
 
-        return actions
+        # Reorder actions: ADD rules first, then REMOVE rules
+        # This ensures critical rules are added before cleaning up extra rules
+        add_actions = [a for a in actions if a.action_type == "add"]
+        modify_actions = [a for a in actions if a.action_type == "modify"]
+        remove_actions = [a for a in actions if a.action_type == "remove"]
+        
+        # Filter out Docker-related remove actions as they're system-managed
+        filtered_remove_actions = []
+        for action in remove_actions:
+            if not self._is_docker_related_rule(action.description):
+                filtered_remove_actions.append(action)
+            else:
+                logger.debug(f"Skipping Docker-related rule removal: {action.description}")
+
+        # Return prioritized actions: add, modify, then filtered removes
+        return add_actions + modify_actions + filtered_remove_actions
+
+    def _is_docker_related_rule(self, description: str) -> bool:
+        """Check if a rule description indicates it's Docker-related."""
+        docker_indicators = [
+            "DOCKER", "docker", "br-", "FORWARD", "PREROUTING", 
+            "POSTROUTING", "MASQUERADE", "conntrack", "addrtype"
+        ]
+        return any(indicator in description for indicator in docker_indicators)
 
     def plan_device_enforcement(
         self, policy: NetworkPolicy, device_result
