@@ -1,0 +1,187 @@
+# Example Network Security Policy
+# This demonstrates a comprehensive security policy for web servers
+
+metadata:
+  name: "web-server-security-policy"
+  version: "1.0"
+  description: "Security policy for DMZ web servers"
+  author: "Security Team"
+  created_date: "2025-01-10"
+  tags: ["web", "dmz", "production"]
+
+# Define network zones
+zones:
+  dmz:
+    name: "dmz"
+    description: "DMZ zone for web servers"
+    networks:
+      - cidr: "192.168.100.0/24"
+  
+  management:
+    name: "management"
+    description: "Management network"
+    networks:
+      - cidr: "10.0.0.0/24"
+  
+  internal:
+    name: "internal"
+    description: "Internal corporate network"
+    networks:
+      - cidr: "172.16.0.0/16"
+
+# Firewall rules
+firewall_rules:
+  # SSH access from management network only
+  - id: "ssh-mgmt-access"
+    name: "allow-ssh-management"
+    description: "Allow SSH access from management network"
+    enabled: true
+    priority: 10
+    action: "allow"
+    direction: "inbound"
+    protocol:
+      name: "tcp"
+      number: 6
+    source_zones:
+      - name: "management"
+    destination_zones:
+      - name: "dmz"
+    destination_ports:
+      - number: 22
+    log_traffic: true
+    tags: ["ssh", "management"]
+  
+  # HTTP traffic from anywhere
+  - id: "http-public-access"
+    name: "allow-http-public"
+    description: "Allow HTTP traffic from internet"
+    enabled: true
+    priority: 20
+    action: "allow"
+    direction: "inbound"
+    protocol:
+      name: "tcp"
+    source_ips:
+      - cidr: "0.0.0.0/0"
+    destination_zones:
+      - name: "dmz"
+    destination_ports:
+      - number: 80
+    log_traffic: false
+    tags: ["web", "public"]
+  
+  # HTTPS traffic from anywhere
+  - id: "https-public-access"
+    name: "allow-https-public"
+    description: "Allow HTTPS traffic from internet"
+    enabled: true
+    priority: 20
+    action: "allow"
+    direction: "inbound"
+    protocol:
+      name: "tcp"
+    source_ips:
+      - cidr: "0.0.0.0/0"
+    destination_zones:
+      - name: "dmz"
+    destination_ports:
+      - number: 443
+    log_traffic: false
+    tags: ["web", "public"]
+  
+  # Database access from DMZ to internal network
+  - id: "db-access-dmz-internal"
+    name: "allow-database-access"
+    description: "Allow database access from DMZ to internal"
+    enabled: true
+    priority: 30
+    action: "allow"
+    direction: "outbound"
+    protocol:
+      name: "tcp"
+    source_zones:
+      - name: "dmz"
+    destination_zones:
+      - name: "internal"
+    destination_ports:
+      - number: 3306  # MySQL
+      - number: 5432  # PostgreSQL
+    log_traffic: true
+    tags: ["database", "internal"]
+  
+  # DNS access
+  - id: "dns-access"
+    name: "allow-dns"
+    description: "Allow DNS queries"
+    enabled: true
+    priority: 40
+    action: "allow"
+    direction: "outbound"
+    protocol:
+      name: "udp"
+    source_zones:
+      - name: "dmz"
+    destination_ports:
+      - number: 53
+    log_traffic: false
+    tags: ["dns"]
+  
+  # Block malicious IPs
+  - id: "block-malicious-ips"
+    name: "deny-malicious-sources"
+    description: "Block known malicious IP ranges"
+    enabled: true
+    priority: 5
+    action: "deny"
+    direction: "inbound"
+    protocol:
+      name: "any"
+    source_ips:
+      - cidr: "192.0.2.0/24"    # RFC 5737 test range (example)
+      - cidr: "198.51.100.0/24" # RFC 5737 test range (example)
+    destination_zones:
+      - name: "dmz"
+    log_traffic: true
+    tags: ["security", "blacklist"]
+  
+  # Default deny rule
+  - id: "default-deny"
+    name: "deny-all-other"
+    description: "Deny all other traffic (default deny)"
+    enabled: true
+    priority: 1000
+    action: "deny"
+    direction: "inbound"
+    protocol:
+      name: "any"
+    source_ips:
+      - cidr: "0.0.0.0/0"
+    destination_zones:
+      - name: "dmz"
+    log_traffic: true
+    tags: ["default", "security"]
+
+# NAT rules (if needed)
+nat_rules:
+  - id: "web-server-dnat"
+    name: "web-server-destination-nat"
+    description: "DNAT for web servers"
+    enabled: true
+    type: "destination"
+    original_ip:
+      address: "203.0.113.10"  # Public IP
+    translated_ip:
+      address: "192.168.100.10"  # Internal web server
+    protocol:
+      name: "tcp"
+    original_port:
+      number: 80
+    translated_port:
+      number: 80
+
+# Global settings
+global_settings:
+  default_action: "deny"
+  log_denied_traffic: true
+  connection_timeout: 3600
+  session_limit: 10000
