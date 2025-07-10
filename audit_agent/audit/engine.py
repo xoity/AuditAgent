@@ -9,7 +9,6 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from ..core.logging_config import get_logger
-from ..core.objects import IPAddress, IPRange
 from ..core.policy import NetworkPolicy
 from ..core.rules import BaseRule, FirewallRule
 from ..devices.base import ConfigurationItem, NetworkDevice
@@ -151,69 +150,87 @@ class RuleComparer:
         """Check if a policy rule and device rule might be related."""
         # Parse iptables rule from device
         device_content = device_rule.content.lower()
-        
+
         # Extract key components from the iptables rule
         # Example: "-A INPUT -p tcp -s 0.0.0.0/0 -d 192.168.0.165/32 --dport 22 -j ACCEPT"
-        
-        logger.debug(f"Comparing policy rule '{policy_rule.name}' with device rule: {device_content}")
-        
+
+        logger.debug(
+            f"Comparing policy rule '{policy_rule.name}' with device rule: {device_content}"
+        )
+
         # Check action match
         policy_action = policy_rule.action.value.lower()
         device_has_accept = "-j accept" in device_content
         device_has_drop = "-j drop" in device_content or "-j deny" in device_content
         device_has_reject = "-j reject" in device_content
-        
+
         action_matches = False
         if policy_action == "allow" and device_has_accept:
             action_matches = True
-        elif policy_action in ["deny", "drop"] and (device_has_drop or device_has_reject):
+        elif policy_action in ["deny", "drop"] and (
+            device_has_drop or device_has_reject
+        ):
             action_matches = True
         elif policy_action == "reject" and device_has_reject:
             action_matches = True
-            
-        logger.debug(f"Action match: policy={policy_action}, device_accept={device_has_accept}, matches={action_matches}")
+
+        logger.debug(
+            f"Action match: policy={policy_action}, device_accept={device_has_accept}, matches={action_matches}"
+        )
         if not action_matches:
             return False
-        
+
         # Check direction - look for chain information
         # iptables-save format: "-A INPUT ..." or device shows "input" chain context
         if policy_rule.direction.value == "inbound":
             # Look for INPUT chain references (both -A INPUT and section info)
             input_in_content = "-a input" in device_content
-            input_in_section = device_rule.section and "input" in device_rule.section.lower()
+            input_in_section = (
+                device_rule.section and "input" in device_rule.section.lower()
+            )
             if not (input_in_content or input_in_section):
-                logger.debug("Direction mismatch: expected inbound/INPUT but device rule doesn't match")
+                logger.debug(
+                    "Direction mismatch: expected inbound/INPUT but device rule doesn't match"
+                )
                 return False
         elif policy_rule.direction.value == "outbound":
-            # Look for OUTPUT chain references  
+            # Look for OUTPUT chain references
             output_in_content = "-a output" in device_content
-            output_in_section = device_rule.section and "output" in device_rule.section.lower()
+            output_in_section = (
+                device_rule.section and "output" in device_rule.section.lower()
+            )
             if not (output_in_content or output_in_section):
-                logger.debug("Direction mismatch: expected outbound/OUTPUT but device rule doesn't match")
+                logger.debug(
+                    "Direction mismatch: expected outbound/OUTPUT but device rule doesn't match"
+                )
                 return False
-                
+
         # Check protocol
         if policy_rule.protocol and policy_rule.protocol.name != "any":
             protocol_check = f"-p {policy_rule.protocol.name}"
             if protocol_check not in device_content:
-                logger.debug(f"Protocol mismatch: expected {protocol_check} not found in device rule")
+                logger.debug(
+                    f"Protocol mismatch: expected {protocol_check} not found in device rule"
+                )
                 return False
-        
+
         # Check destination ports
         if policy_rule.destination_ports:
             port = policy_rule.destination_ports[0]
             if port.is_single():
                 port_check = f"--dport {port.number}"
                 if port_check not in device_content:
-                    logger.debug(f"Port mismatch: expected {port_check} not found in device rule")
+                    logger.debug(
+                        f"Port mismatch: expected {port_check} not found in device rule"
+                    )
                     return False
-        
+
         # Check source IPs (simplified)
         if policy_rule.source_ips:
             source_ip = policy_rule.source_ips[0]
             # Use string conversion which works for both IPAddress and IPRange
             ip_str = str(source_ip)
-            
+
             # Check if source IP is in the device rule
             # Special case: 0.0.0.0/0 means "any" and may be omitted in iptables rules
             if ip_str == "0.0.0.0/0":
@@ -221,27 +238,35 @@ class RuleComparer:
                 source_check = f"-s {ip_str}"
                 if source_check not in device_content and "-s " not in device_content:
                     # No source restriction means it accepts from any source (0.0.0.0/0)
-                    logger.debug("Source IP 0.0.0.0/0 (any) matches - no source restriction in device rule")
+                    logger.debug(
+                        "Source IP 0.0.0.0/0 (any) matches - no source restriction in device rule"
+                    )
                 else:
-                    logger.debug(f"Source IP mismatch: expected {source_check} not found in device rule")
+                    logger.debug(
+                        f"Source IP mismatch: expected {source_check} not found in device rule"
+                    )
                     return False
             else:
                 # Specific source IP must be present
                 source_check = f"-s {ip_str}"
                 if source_check not in device_content:
-                    logger.debug(f"Source IP mismatch: expected {source_check} not found in device rule")
+                    logger.debug(
+                        f"Source IP mismatch: expected {source_check} not found in device rule"
+                    )
                     return False
-        
+
         # Check destination IPs (simplified)
         if policy_rule.destination_ips:
             dest_ip = policy_rule.destination_ips[0]
             # Use string conversion which works for both IPAddress and IPRange
             ip_str = str(dest_ip)
-                
+
             # Check if destination IP is in the device rule
             dest_check = f"-d {ip_str}"
             if dest_check not in device_content:
-                logger.debug(f"Destination IP mismatch: expected {dest_check} not found in device rule")
+                logger.debug(
+                    f"Destination IP mismatch: expected {dest_check} not found in device rule"
+                )
                 return False
 
         logger.debug(f"Rule match successful for policy rule '{policy_rule.name}'")
