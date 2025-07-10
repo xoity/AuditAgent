@@ -2,14 +2,19 @@
 Enforcement engine for applying policy changes to network devices.
 """
 
-from typing import List, Optional
-from pydantic import BaseModel
+import datetime
 from dataclasses import dataclass
+from typing import List, Optional
+
+from pydantic import BaseModel
+
+from ..audit.engine import AuditEngine, ComplianceIssue, PolicyAuditResult
+from ..core.logging_config import get_logger
 from ..core.policy import NetworkPolicy
 from ..core.rules import BaseRule, FirewallRule
-from ..devices.base import NetworkDevice, CommandResult
-from ..audit.engine import AuditEngine, PolicyAuditResult, ComplianceIssue
-import datetime
+from ..devices.base import CommandResult, NetworkDevice
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -218,8 +223,14 @@ class EnforcementPlanner:
     ) -> Optional[EnforcementAction]:
         """Create an enforcement action for a specific compliance issue."""
 
+        logger.debug(
+            f"Creating action for issue: {issue.issue_type} - {issue.description}"
+        )
+
         if issue.issue_type == "missing_rule":
-            return self.create_add_rule_action(policy, device, issue)
+            action = self.create_add_rule_action(policy, device, issue)
+            logger.debug(f"Created add action: {action is not None}")
+            return action
         elif issue.issue_type == "extra_rule":
             return self.create_remove_rule_action(device, issue)
         elif issue.issue_type == "misconfigured_rule":
@@ -233,13 +244,32 @@ class EnforcementPlanner:
         """Create an action to add a missing rule."""
 
         # Find the policy rule that's missing
+        logger.debug(
+            f"Looking for rule with ID: {issue.rule_id}, name: {issue.rule_name}"
+        )
         rule = self.find_policy_rule_by_id(policy, issue.rule_id)
+        if not rule and issue.rule_name:
+            logger.debug("ID lookup failed, trying name lookup")
+            rule = self.find_policy_rule_by_name(policy, issue.rule_name)
+        logger.debug(f"Found rule: {rule is not None}")
         if not rule:
+            logger.debug("Rule not found, returning None")
             return None
 
         # Generate device commands for the rule
+        logger.debug("Generating commands for rule")
+        logger.debug(f"Rule type: {type(rule).__name__}")
+        logger.debug(
+            f"Rule name/id: {getattr(rule, 'name', getattr(rule, 'id', 'unknown'))}"
+        )
+        if hasattr(rule, "__dict__"):
+            logger.debug(f"Rule dict: {rule.__dict__}")
+
         commands = device.rule_to_commands(rule)
+
+        logger.debug(f"Generated commands: {commands}")
         if not commands:
+            logger.debug("No commands generated, returning None")
             return None
 
         return EnforcementAction(
@@ -319,17 +349,66 @@ class EnforcementPlanner:
 
         return None
 
+    def find_policy_rule_by_name(
+        self, policy: NetworkPolicy, rule_name: Optional[str]
+    ) -> Optional[BaseRule]:
+        """Find a policy rule by its name."""
+        if not rule_name:
+            return None
+
+        for rule in policy.get_all_rules():
+            if hasattr(rule, "name") and rule.name == rule_name:
+                return rule
+
+        return None
+
     def generate_remove_commands(
         self, device: NetworkDevice, rule_config: str
     ) -> List[str]:
         """Generate commands to remove a rule (device-specific)."""
-        # This is a simplified implementation
-        # Real implementation would be device-specific
+        logger.debug("Generating remove commands")
+        logger.debug(f"Device type: {type(device).__name__}")
+        logger.debug(f"Rule config: {rule_config}")
 
-        if "access-list" in rule_config:
+        # Handle iptables rules
+        if (
+            hasattr(device, "__class__")
+            and "LinuxIptables" in device.__class__.__name__
+        ):
+            # Convert iptables -A (append) rule to -D (delete) rule
+            if rule_config.startswith("-A "):
+                # Replace -A with -D to delete the rule
+                delete_command = rule_config.replace("-A ", "-D ", 1)
+                # Remove line numbers and rule numbering if present
+                import re
+
+                delete_command = re.sub(r"\s+\d+\s+", " ", delete_command)
+                delete_command = f"iptables {delete_command}"
+                logger.debug(f"Generated iptables delete command: {delete_command}")
+                return [delete_command]
+
+            # Handle other iptables rule formats
+            elif "iptables" in rule_config:
+                # If it's already a full iptables command, convert to delete
+                if " -A " in rule_config:
+                    delete_command = rule_config.replace(" -A ", " -D ", 1)
+                    logger.debug(f"Generated iptables delete command: {delete_command}")
+                    return [delete_command]
+                else:
+                    logger.debug(f"Cannot generate delete command for: {rule_config}")
+                    return []
+            else:
+                logger.debug(f"Unknown iptables rule format: {rule_config}")
+                return []
+
+        # Handle Cisco-style rules
+        elif "access-list" in rule_config:
             # For Cisco devices, use "no" prefix
-            return [f"no {rule_config}"]
+            command = f"no {rule_config}"
+            logger.debug(f"Generated Cisco delete command: {command}")
+            return [command]
 
+        logger.debug("No matching rule format found")
         return []
 
     def assess_risk_level(self, rule: BaseRule, action_type: str) -> str:
@@ -378,9 +457,9 @@ class EnforcementEngine:
         # Validate actions
         validation_warnings = self.validator.validate_enforcement_actions(actions)
         if validation_warnings and not dry_run:
-            print("Validation warnings found:")
+            logger.warning("Validation warnings found:")
             for warning in validation_warnings:
-                print(f"  - {warning}")
+                logger.warning(f"  - {warning}")
 
         # Execute actions
         device_results = []
@@ -447,7 +526,12 @@ class EnforcementEngine:
                 await device.connect()
 
         # Execute actions in order
-        for action in actions:
+        logger.debug(f"Processing {len(actions)} actions")
+        for i, action in enumerate(actions):
+            logger.debug(f"Action {i + 1}: {action.action_type} - {action.description}")
+            logger.debug(f"Commands: {action.commands}")
+            logger.debug(f"Command count: {len(action.commands)}")
+
             if not dry_run:
                 # Execute the action
                 results = await device.apply_commands(action.commands, dry_run=False)

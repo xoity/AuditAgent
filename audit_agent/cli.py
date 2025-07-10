@@ -2,26 +2,181 @@
 Command-line interface for AuditAgent.
 """
 
-import typer
 import asyncio
-from pathlib import Path
-from typing import Optional, List
-from rich.console import Console
-from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn
-import yaml
 import json
+from pathlib import Path
+from typing import List, Optional
 
+import typer
+import yaml
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
+
+from .audit.engine import AuditEngine
+from .core.logging_config import get_logger
 from .core.policy import NetworkPolicy
 from .core.rules import FirewallRule
 from .devices.linux_iptables import LinuxIptables
-from .audit.engine import AuditEngine
 from .enforcement.engine import EnforcementEngine
 
-app = typer.Typer(
-    help="AuditAgent - Agentless Network Security Policy Enforcer & Auditor"
-)
 console = Console()
+
+
+def version_callback(value: bool):
+    if value:
+        console.print("AuditAgent version 0.1.0")
+        raise typer.Exit()
+
+
+def help_callback(ctx: typer.Context, param: typer.CallbackParam, value: bool):
+    if not value or ctx.resilient_parsing:
+        return
+
+    # Show comprehensive help
+    console.print(
+        "\n[bold blue]AuditAgent - Agentless Network Security Policy Enforcer & Auditor[/bold blue]\n"
+    )
+
+    console.print("[bold]USAGE:[/bold]")
+    console.print("  python -m audit_agent.cli [COMMAND] [OPTIONS] [ARGUMENTS]\n")
+
+    console.print("[bold]COMMANDS:[/bold]\n")
+
+    # Audit command
+    console.print(
+        "[bold cyan]audit[/bold cyan] [italic]policy_file devices_file[/italic]"
+    )
+    console.print("  Audit devices against a network security policy")
+    console.print("  [bold]Arguments:[/bold]")
+    console.print("    policy_file    Path to policy file (YAML or JSON) [required]")
+    console.print("    devices_file   Path to devices configuration file [required]")
+    console.print("  [bold]Options:[/bold]")
+    console.print(
+        "    --output-format TEXT    Output format: text, json, html [default: text]"
+    )
+    console.print("    --output-file PATH      Output file path")
+    console.print(
+        "    -v, --verbose           Increase verbosity (-v, -vv) [default: 0]"
+    )
+    console.print("")
+
+    # Enforce command
+    console.print(
+        "[bold cyan]enforce[/bold cyan] [italic]policy_file devices_file[/italic]"
+    )
+    console.print("  Enforce a network security policy on devices")
+    console.print("  [bold]Arguments:[/bold]")
+    console.print("    policy_file    Path to policy file (YAML or JSON) [required]")
+    console.print("    devices_file   Path to devices configuration file [required]")
+    console.print("  [bold]Options:[/bold]")
+    console.print(
+        "    --dry-run / --no-dry-run    Perform dry run without making changes [default: dry-run]"
+    )
+    console.print(
+        "    --output-format TEXT        Output format: text, json [default: text]"
+    )
+    console.print("    --output-file PATH          Output file path")
+    console.print(
+        "    -v, --verbose               Increase verbosity (-v, -vv) [default: 0]"
+    )
+    console.print("")
+
+    # Validate command
+    console.print("[bold cyan]validate[/bold cyan] [italic]policy_file[/italic]")
+    console.print("  Validate a network security policy for correctness")
+    console.print("  [bold]Arguments:[/bold]")
+    console.print("    policy_file    Path to policy file (YAML or JSON) [required]")
+    console.print("  [bold]Options:[/bold]")
+    console.print(
+        "    --output-format TEXT    Output format: text, json [default: text]"
+    )
+    console.print("    --output-file PATH      Output file path")
+    console.print("")
+
+    # Create-example command
+    console.print("[bold cyan]create-example[/bold cyan] [italic]output_file[/italic]")
+    console.print("  Create an example network security policy")
+    console.print("  [bold]Arguments:[/bold]")
+    console.print("    output_file    Path for the example policy file [required]")
+    console.print("  [bold]Options:[/bold]")
+    console.print(
+        "    --format TEXT    Format for the example: yaml, json [default: yaml]"
+    )
+    console.print("")
+
+    console.print("[bold]GLOBAL OPTIONS:[/bold]")
+    console.print("  -h, --help              Show this comprehensive help")
+    console.print("  --version               Show version information")
+    console.print("  --install-completion    Install completion for the current shell")
+    console.print("  --show-completion       Show completion for current shell")
+    console.print("")
+
+    console.print("[bold]VERBOSITY LEVELS:[/bold]")
+    console.print(
+        "  [bold]Default[/bold]     Only show essential messages (warnings/errors)"
+    )
+    console.print(
+        "  [bold]-v[/bold]         Show debug messages from AuditAgent modules"
+    )
+    console.print(
+        "  [bold]-vv[/bold]        Show all debug messages including external libraries"
+    )
+    console.print("")
+
+    console.print("[bold]EXAMPLES:[/bold]")
+    console.print("  [dim]# Audit with minimal output[/dim]")
+    console.print("  python -m audit_agent.cli audit policy.yaml devices.yaml")
+    console.print("")
+    console.print("  [dim]# Audit with debug output[/dim]")
+    console.print("  python -m audit_agent.cli audit -v policy.yaml devices.yaml")
+    console.print("")
+    console.print("  [dim]# Enforce with dry run (default)[/dim]")
+    console.print("  python -m audit_agent.cli enforce policy.yaml devices.yaml")
+    console.print("")
+    console.print("  [dim]# Enforce with actual changes[/dim]")
+    console.print(
+        "  python -m audit_agent.cli enforce --no-dry-run policy.yaml devices.yaml"
+    )
+    console.print("")
+    console.print("  [dim]# Validate policy file[/dim]")
+    console.print("  python -m audit_agent.cli validate policy.yaml")
+    console.print("")
+    console.print("  [dim]# Create example policy[/dim]")
+    console.print("  python -m audit_agent.cli create-example example-policy.yaml")
+
+    raise typer.Exit()
+
+
+app = typer.Typer(
+    help="AuditAgent - Agentless Network Security Policy Enforcer & Auditor",
+    no_args_is_help=True,
+)
+logger = get_logger(__name__)
+
+
+@app.callback()
+def main_callback(
+    help: bool = typer.Option(
+        False,
+        "-h",
+        "--help",
+        callback=help_callback,
+        is_eager=True,
+        help="Show comprehensive help for all commands",
+    ),
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=version_callback,
+        is_eager=True,
+        help="Show version information",
+    ),
+):
+    """
+    AuditAgent - Agentless Network Security Policy Enforcer & Auditor
+    """
+    pass
 
 
 @app.command()
@@ -30,8 +185,16 @@ def audit(
     devices_file: Path = typer.Argument(..., help="Path to devices configuration file"),
     output_format: str = typer.Option("text", help="Output format: text, json, html"),
     output_file: Optional[Path] = typer.Option(None, help="Output file path"),
+    verbose: int = typer.Option(
+        0, "-v", "--verbose", count=True, help="Increase verbosity (-v, -vv)"
+    ),
 ):
     """Audit devices against a network security policy."""
+
+    # Setup logging based on verbosity
+    from .core.logging_config import setup_logging
+
+    setup_logging(min(verbose, 2))
 
     console.print("[bold blue]Starting Policy Audit...[/bold blue]")
 
@@ -39,16 +202,20 @@ def audit(
     try:
         policy = load_policy(policy_file)
         console.print(f"✓ Loaded policy: {policy.metadata.name}")
+        logger.info(f"Loaded policy: {policy.metadata.name}")
     except Exception as e:
         console.print(f"[red]Error loading policy: {e}[/red]")
+        logger.error(f"Error loading policy: {e}")
         raise typer.Exit(1)
 
     # Load devices
     try:
         devices = load_devices(devices_file)
         console.print(f"✓ Loaded {len(devices)} devices")
+        logger.info(f"Loaded {len(devices)} devices")
     except Exception as e:
         console.print(f"[red]Error loading devices: {e}[/red]")
+        logger.error(f"Error loading devices: {e}")
         raise typer.Exit(1)
 
     # Run audit
@@ -64,8 +231,10 @@ def audit(
         try:
             result = asyncio.run(audit_engine.audit_policy(policy, devices))
             progress.update(task, completed=True, description="✓ Audit completed")
+            logger.info("Audit completed successfully")
         except Exception as e:
             console.print(f"[red]Error during audit: {e}[/red]")
+            logger.error(f"Error during audit: {e}")
             raise typer.Exit(1)
 
     # Generate report
@@ -74,6 +243,7 @@ def audit(
     if output_file:
         output_file.write_text(report)
         console.print(f"✓ Report saved to {output_file}")
+        logger.info(f"Report saved to {output_file}")
     else:
         console.print(report)
 
@@ -88,8 +258,16 @@ def enforce(
     dry_run: bool = typer.Option(True, help="Perform dry run without making changes"),
     output_format: str = typer.Option("text", help="Output format: text, json"),
     output_file: Optional[Path] = typer.Option(None, help="Output file path"),
+    verbose: int = typer.Option(
+        0, "-v", "--verbose", count=True, help="Increase verbosity (-v, -vv)"
+    ),
 ):
     """Enforce a network security policy on devices."""
+
+    # Setup logging based on verbosity
+    from .core.logging_config import setup_logging
+
+    setup_logging(min(verbose, 2))
 
     mode_text = "DRY RUN" if dry_run else "LIVE ENFORCEMENT"
     console.print(
@@ -100,6 +278,7 @@ def enforce(
         confirm = typer.confirm("This will make changes to your devices. Are you sure?")
         if not confirm:
             console.print("Enforcement cancelled.")
+            logger.info("Enforcement cancelled by user")
             raise typer.Exit()
 
     # Load policy and devices
@@ -108,8 +287,11 @@ def enforce(
         devices = load_devices(devices_file)
         console.print(f"✓ Loaded policy: {policy.metadata.name}")
         console.print(f"✓ Loaded {len(devices)} devices")
+        logger.info(f"Loaded policy: {policy.metadata.name}")
+        logger.info(f"Loaded {len(devices)} devices")
     except Exception as e:
         console.print(f"[red]Error loading configuration: {e}[/red]")
+        logger.error(f"Error loading configuration: {e}")
         raise typer.Exit(1)
 
     # Run enforcement
@@ -127,8 +309,10 @@ def enforce(
                 enforcement_engine.enforce_policy(policy, devices, dry_run)
             )
             progress.update(task, completed=True, description="✓ Enforcement completed")
+            logger.info("Enforcement completed successfully")
         except Exception as e:
             console.print(f"[red]Error during enforcement: {e}[/red]")
+            logger.error(f"Error during enforcement: {e}")
             raise typer.Exit(1)
 
     # Generate report
@@ -137,6 +321,7 @@ def enforce(
     if output_file:
         output_file.write_text(report)
         console.print(f"✓ Report saved to {output_file}")
+        logger.info(f"Report saved to {output_file}")
     else:
         console.print(report)
 
@@ -276,7 +461,9 @@ def load_policy(policy_file: Path) -> NetworkPolicy:
 
 def load_devices(devices_file: Path) -> List:
     """Load device configurations from file."""
+    logger.debug(f"Loading devices from: {devices_file}")
     content = devices_file.read_text()
+    logger.debug(f"Device file content: {content}")
 
     if devices_file.suffix.lower() in [".yaml", ".yml"]:
         devices_config = yaml.safe_load(content)
@@ -285,27 +472,34 @@ def load_devices(devices_file: Path) -> List:
     else:
         raise ValueError(f"Unsupported devices file format: {devices_file.suffix}")
 
+    logger.debug(f"Parsed device config: {devices_config}")
     devices = []
 
     for device_config in devices_config.get("devices", []):
+        logger.debug(f"Processing device config: {device_config}")
         device_type = device_config.get("type", "").lower()
+        logger.debug(f"Device type: {device_type}")
 
         if device_type == "linux_iptables":
+            logger.debug("Creating LinuxIptables device...")
             device = LinuxIptables(
                 host=device_config["host"],
                 username=device_config["username"],
                 password=device_config.get("password"),
                 private_key=device_config.get("private_key"),
+                private_key_passphrase=device_config.get("private_key_passphrase"),
                 port=device_config.get("port", 22),
                 sudo_password=device_config.get("sudo_password"),
             )
             devices.append(device)
+            logger.debug(f"Created device: {device}")
         else:
             console.print(
                 f"[yellow]Warning: Unsupported device type: {device_type}[/yellow]"
             )
             console.print("[yellow]Supported types: linux_iptables[/yellow]")
 
+    logger.debug(f"Total devices loaded: {len(devices)}")
     return devices
 
 

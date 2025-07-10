@@ -3,8 +3,10 @@ Base classes for network device abstraction.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
 from pydantic import BaseModel
+
 from ..core.rules import BaseRule
 
 
@@ -14,6 +16,7 @@ class DeviceCredentials(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     private_key: Optional[str] = None
+    private_key_passphrase: Optional[str] = None
     api_key: Optional[str] = None
     token: Optional[str] = None
 

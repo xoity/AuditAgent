@@ -2,13 +2,18 @@
 Audit engine for comparing policies against device configurations.
 """
 
-from typing import List, Optional
-from pydantic import BaseModel
+import datetime
 from dataclasses import dataclass
+from typing import List, Optional
+
+from pydantic import BaseModel
+
+from ..core.logging_config import get_logger
 from ..core.policy import NetworkPolicy
 from ..core.rules import BaseRule, FirewallRule
-from ..devices.base import NetworkDevice, ConfigurationItem
-import datetime
+from ..devices.base import ConfigurationItem, NetworkDevice
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -304,6 +309,11 @@ class AuditEngine:
             device_config = await device.get_configuration()
             config_items = device_config.parsed_items
 
+            # DEBUG: Print what we found on the device
+            logger.debug(f"Device has {len(config_items)} configuration items")
+            for item in config_items:
+                logger.debug(f"Found {item.type}: {item.content}")
+
         except Exception as e:
             # If we can't get the configuration, that's a critical issue
             issues.append(
@@ -333,6 +343,11 @@ class AuditEngine:
         total_rules = len(all_policy_rules)
         compliant_rules = 0
 
+        # DEBUG: Print policy rules
+        logger.debug(f"Policy has {total_rules} rules to check")
+        for rule in all_policy_rules:
+            logger.debug(f"Policy rule: {rule.name} - {rule}")
+
         for rule in all_policy_rules:
             rule_issues = []
 
@@ -340,6 +355,13 @@ class AuditEngine:
                 rule_issues = self.rule_comparer.compare_firewall_rule(
                     rule, config_items
                 )
+
+                # DEBUG: Print comparison results
+                logger.debug(
+                    f"Rule '{rule.name}' comparison found {len(rule_issues)} issues"
+                )
+                for issue in rule_issues:
+                    logger.debug(f"Issue: {issue.issue_type} - {issue.description}")
             # Add other rule types as needed
 
             # Set device name for all issues

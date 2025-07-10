@@ -4,15 +4,19 @@ Linux iptables firewall device implementation.
 
 import re
 from typing import List, Optional
+
+from ..core.logging_config import get_logger
+from ..core.rules import Action, BaseRule, FirewallRule
 from .base import (
-    FirewallDevice,
+    CommandResult,
+    ConfigurationItem,
+    DeviceConfiguration,
     DeviceConnection,
     DeviceInfo,
-    ConfigurationItem,
-    CommandResult,
-    DeviceConfiguration,
+    FirewallDevice,
 )
-from ..core.rules import BaseRule, FirewallRule, Action
+
+logger = get_logger(__name__)
 
 
 class LinuxIptables(FirewallDevice):
@@ -24,13 +28,17 @@ class LinuxIptables(FirewallDevice):
         username: str,
         password: Optional[str] = None,
         private_key: Optional[str] = None,
+        private_key_passphrase: Optional[str] = None,
         port: int = 22,
         sudo_password: Optional[str] = None,
     ):
         from .base import DeviceCredentials
 
         credentials = DeviceCredentials(
-            username=username, password=password, private_key=private_key
+            username=username,
+            password=password,
+            private_key=private_key,
+            private_key_passphrase=private_key_passphrase,
         )
         connection = DeviceConnection(
             host=host, port=port, protocol="ssh", credentials=credentials
@@ -56,9 +64,58 @@ class LinuxIptables(FirewallDevice):
 
             if self.connection.credentials.private_key:
                 # Use private key authentication
-                key = paramiko.RSAKey.from_private_key_file(
-                    self.connection.credentials.private_key
-                )
+                key_path = self.connection.credentials.private_key
+
+                # Try to load the private key, handling both encrypted and unencrypted keys
+                key = None
+                try:
+                    # First, try without passphrase (unencrypted key)
+                    key = paramiko.RSAKey.from_private_key_file(key_path)
+                except paramiko.PasswordRequiredException:
+                    # Key is encrypted, use provided passphrase
+                    passphrase = self.connection.credentials.private_key_passphrase
+                    if not passphrase:
+                        raise ValueError(
+                            "Private key is encrypted but no passphrase provided"
+                        )
+
+                    try:
+                        key = paramiko.RSAKey.from_private_key_file(
+                            key_path, password=passphrase
+                        )
+                    except paramiko.SSHException:
+                        # Try other key types if RSA fails
+                        try:
+                            key = paramiko.Ed25519Key.from_private_key_file(
+                                key_path, password=passphrase
+                            )
+                        except paramiko.SSHException:
+                            try:
+                                key = paramiko.ECDSAKey.from_private_key_file(
+                                    key_path, password=passphrase
+                                )
+                            except paramiko.SSHException:
+                                try:
+                                    key = paramiko.DSSKey.from_private_key_file(
+                                        key_path, password=passphrase
+                                    )
+                                except paramiko.SSHException:
+                                    raise ValueError(
+                                        "Unable to load private key with provided passphrase"
+                                    )
+                except paramiko.SSHException:
+                    # Try other key types for unencrypted keys
+                    try:
+                        key = paramiko.Ed25519Key.from_private_key_file(key_path)
+                    except paramiko.SSHException:
+                        try:
+                            key = paramiko.ECDSAKey.from_private_key_file(key_path)
+                        except paramiko.SSHException:
+                            try:
+                                key = paramiko.DSSKey.from_private_key_file(key_path)
+                            except paramiko.SSHException:
+                                raise ValueError("Unable to load private key")
+
                 connect_kwargs["pkey"] = key
             elif self.connection.credentials.password:
                 # Use password authentication
@@ -78,7 +135,7 @@ class LinuxIptables(FirewallDevice):
 
         except Exception as e:
             self._connected = False
-            print(f"Failed to connect to {self.connection.host}: {e}")
+            logger.error(f"Failed to connect to {self.connection.host}: {e}")
 
         return False
 
@@ -89,7 +146,9 @@ class LinuxIptables(FirewallDevice):
             self._ssh_client = None
         self._connected = False
 
-    async def execute_command(self, command: str) -> CommandResult:
+    async def execute_command(
+        self, command: str, use_sudo: Optional[bool] = None
+    ) -> CommandResult:
         """Execute a command on the Linux server."""
         if not self._ssh_client:
             return CommandResult(
@@ -104,48 +163,195 @@ class LinuxIptables(FirewallDevice):
             import time
 
             start_time = time.time()
+            original_command = command
 
-            # Add sudo if needed for iptables commands
-            if any(
-                cmd in command
-                for cmd in [
-                    "iptables",
-                    "ip6tables",
-                    "iptables-save",
-                    "iptables-restore",
-                ]
-            ):
-                if self.sudo_password:
-                    command = f"echo '{self.sudo_password}' | sudo -S {command}"
-                else:
-                    command = f"sudo {command}"
+            # Determine if sudo is needed
+            if use_sudo is None:
+                use_sudo = any(
+                    cmd in command
+                    for cmd in [
+                        "iptables",
+                        "ip6tables",
+                        "iptables-save",
+                        "iptables-restore",
+                    ]
+                )
 
-            stdin, stdout, stderr = self._ssh_client.exec_command(command)
+            # Build the command
+            shell_command = self._build_shell_command(command, use_sudo)
 
-            # Wait for command to complete
-            exit_code = stdout.channel.recv_exit_status()
-            output = stdout.read().decode("utf-8")
-            error = stderr.read().decode("utf-8")
+            # Execute using channel handling
+            transport = self._ssh_client.get_transport()
+            if not transport:
+                raise Exception("No transport available")
+
+            channel = transport.open_session()
+
+            try:
+                # Set environment variables for better shell handling
+                try:
+                    channel.set_environment_variable(
+                        "DEBIAN_FRONTEND", "noninteractive"
+                    )
+                    channel.set_environment_variable("PYTHONUNBUFFERED", "1")
+                except Exception:
+                    # Some SSH servers don't support environment variables
+                    pass
+
+                # Execute the command
+                channel.exec_command(shell_command)
+
+                # Read output in a non-blocking way
+                stdout_data = b""
+                stderr_data = b""
+
+                while True:
+                    if channel.recv_ready():
+                        chunk = channel.recv(4096)
+                        if chunk:
+                            stdout_data += chunk
+
+                    if channel.recv_stderr_ready():
+                        chunk = channel.recv_stderr(4096)
+                        if chunk:
+                            stderr_data += chunk
+
+                    if channel.exit_status_ready():
+                        break
+
+                    # Small sleep to prevent busy waiting
+                    time.sleep(0.01)
+
+                # Get any remaining data
+                while channel.recv_ready():
+                    chunk = channel.recv(4096)
+                    if chunk:
+                        stdout_data += chunk
+
+                while channel.recv_stderr_ready():
+                    chunk = channel.recv_stderr(4096)
+                    if chunk:
+                        stderr_data += chunk
+
+                exit_code = channel.recv_exit_status()
+
+            finally:
+                channel.close()
 
             execution_time = time.time() - start_time
 
-            return CommandResult(
-                command=command,
+            # Decode output with error handling
+            try:
+                output = stdout_data.decode("utf-8")
+            except UnicodeDecodeError:
+                output = stdout_data.decode("utf-8", errors="replace")
+
+            try:
+                error = stderr_data.decode("utf-8") if stderr_data else None
+            except UnicodeDecodeError:
+                error = (
+                    stderr_data.decode("utf-8", errors="replace")
+                    if stderr_data
+                    else None
+                )
+
+            # Clean up sudo password from error output for security
+            if error and self.sudo_password:
+                error = error.replace(self.sudo_password, "***")
+
+            result = CommandResult(
+                command=original_command,
                 success=exit_code == 0,
                 output=output,
-                error=error if error else None,
+                error=error,
                 exit_code=exit_code,
                 execution_time=execution_time,
             )
+
+            logger.debug(f"Executing command: {original_command}")
+            logger.debug(f"Result: success={result.success}, exit_code={exit_code}")
+            if result.error:
+                logger.debug(f"Error: {result.error}")
+
+            return result
 
         except Exception as e:
             return CommandResult(
                 command=command,
                 success=False,
                 output="",
-                error=str(e),
-                execution_time=0.0,
+                error=f"Command execution failed: {str(e)}",
+                execution_time=time.time() - start_time
+                if "start_time" in locals()
+                else 0.0,
             )
+
+    def _build_shell_command(self, command: str, use_sudo: bool = False) -> str:
+        """Build a shell command with proper escaping."""
+        import shlex
+
+        # Start with a clean shell environment
+        shell_parts = []
+
+        # Set error handling (fail on any error)
+        shell_parts.append("set -e")
+
+        # Handle sudo if needed
+        if use_sudo:
+            if self.sudo_password:
+                # Use a more secure approach for sudo with password
+                # Create a temporary script to avoid password exposure in process list
+                sudo_command = (
+                    f"echo {shlex.quote(self.sudo_password)} | sudo -S -p '' "
+                )
+                shell_parts.append(f"{sudo_command} {command}")
+            else:
+                # Use sudo without password (assumes passwordless sudo or existing sudo session)
+                shell_parts.append(f"sudo {command}")
+        else:
+            shell_parts.append(command)
+
+        # Join with && to ensure proper error propagation
+        return " && ".join(shell_parts)
+
+    def _escape_shell_string(self, string: str) -> str:
+        """Escape a string for safe shell execution"""
+        import shlex
+
+        return shlex.quote(string)
+
+    async def execute_commands_batch(
+        self, commands: List[str], stop_on_error: bool = True
+    ) -> List[CommandResult]:
+        """Execute multiple commands in sequence"""
+        results = []
+
+        for command in commands:
+            result = await self.execute_command(command)
+            results.append(result)
+
+            # Stop on first error if requested
+            if stop_on_error and not result.success:
+                logger.error(
+                    f"Stopping batch execution due to error in command: {command}"
+                )
+                break
+
+        return results
+
+    async def execute_script(
+        self, script_content: str, use_sudo: bool = False
+    ) -> CommandResult:
+        """Execute a shell script"""
+        import base64
+
+        # Encode script content to avoid shell escaping issues
+        script_b64 = base64.b64encode(script_content.encode("utf-8")).decode("ascii")
+
+        # Create a command that decodes and executes the script
+        decode_and_run = f"echo '{script_b64}' | base64 -d | /bin/bash"
+
+        return await self.execute_command(decode_and_run, use_sudo=use_sudo)
 
     async def get_configuration(self) -> DeviceConfiguration:
         """Get the current iptables configuration."""
@@ -353,32 +559,59 @@ class LinuxIptables(FirewallDevice):
 
     def rule_to_commands(self, rule: BaseRule) -> List[str]:
         """Convert a rule to iptables commands."""
+        logger.debug("Converting rule to commands")
+        logger.debug(f"Rule type: {type(rule).__name__}")
+        logger.debug(f"Rule name: {getattr(rule, 'name', 'unnamed')}")
+        logger.debug(f"Is FirewallRule: {isinstance(rule, FirewallRule)}")
+
+        if hasattr(rule, "__dict__"):
+            logger.debug(f"Rule attributes: {rule.__dict__}")
+
         if not isinstance(rule, FirewallRule):
+            logger.debug("Rule is not a FirewallRule, returning empty list")
             return []
+
+        logger.debug("Processing FirewallRule")
+        logger.debug(f"Direction: {getattr(rule, 'direction', 'unknown')}")
+        logger.debug(f"Action: {getattr(rule, 'action', 'unknown')}")
+        logger.debug(f"Protocol: {getattr(rule, 'protocol', 'unknown')}")
 
         # Determine chain based on direction
         chain = "INPUT"
-        if rule.direction.value == "outbound":
+        if hasattr(rule, "direction") and rule.direction.value == "outbound":
             chain = "OUTPUT"
-        elif rule.direction.value == "bidirectional":
+        elif hasattr(rule, "direction") and rule.direction.value == "bidirectional":
             # Create rules for both directions
-            return self._build_iptables_rule(rule, "INPUT") + self._build_iptables_rule(
-                rule, "OUTPUT"
+            logger.debug("Creating bidirectional rules for INPUT and OUTPUT")
+            input_rules = self._build_iptables_rule(rule, "INPUT")
+            output_rules = self._build_iptables_rule(rule, "OUTPUT")
+            combined_rules = input_rules + output_rules
+            logger.debug(
+                f"Generated {len(combined_rules)} bidirectional commands: {combined_rules}"
             )
+            return combined_rules
 
-        return self._build_iptables_rule(rule, chain)
+        logger.debug(f"Creating rule for chain: {chain}")
+        generated_commands = self._build_iptables_rule(rule, chain)
+        logger.debug(
+            f"Generated {len(generated_commands)} commands: {generated_commands}"
+        )
+        return generated_commands
 
     def _build_iptables_rule(self, rule: FirewallRule, chain: str) -> List[str]:
         """Build iptables rule for a specific chain."""
+        logger.debug(f"Building iptables rule for chain: {chain}")
         cmd_parts = ["iptables", "-A", chain]
 
         # Protocol
         if rule.protocol:
+            logger.debug(f"Adding protocol: {rule.protocol.name}")
             cmd_parts.extend(["-p", rule.protocol.name])
 
         # Source IPs
         if rule.source_ips:
             source_ip = rule.source_ips[0]  # Use first source IP
+            logger.debug(f"Adding source IP: {source_ip}")
             from ..core.objects import IPAddress, IPRange
 
             if isinstance(source_ip, IPAddress):
@@ -389,6 +622,7 @@ class LinuxIptables(FirewallDevice):
         # Destination IPs
         if rule.destination_ips:
             dest_ip = rule.destination_ips[0]  # Use first destination IP
+            logger.debug(f"Adding destination IP: {dest_ip}")
             from ..core.objects import IPAddress, IPRange
 
             if isinstance(dest_ip, IPAddress):
@@ -403,6 +637,7 @@ class LinuxIptables(FirewallDevice):
             and rule.protocol.name in ["tcp", "udp"]
         ):
             port = rule.destination_ports[0]
+            logger.debug(f"Adding destination port: {port}")
             if port.is_single():
                 cmd_parts.extend(["--dport", str(port.number)])
             elif port.is_range():
@@ -411,12 +646,14 @@ class LinuxIptables(FirewallDevice):
         # Source ports
         if rule.source_ports and rule.protocol and rule.protocol.name in ["tcp", "udp"]:
             port = rule.source_ports[0]
+            logger.debug(f"Adding source port: {port}")
             if port.is_single():
                 cmd_parts.extend(["--sport", str(port.number)])
             elif port.is_range():
                 cmd_parts.extend(["--sport", f"{port.range_start}:{port.range_end}"])
 
         # Action
+        logger.debug(f"Adding action: {rule.action}")
         if rule.action == Action.ALLOW:
             cmd_parts.extend(["-j", "ACCEPT"])
         elif rule.action == Action.DENY:
@@ -428,15 +665,20 @@ class LinuxIptables(FirewallDevice):
 
         # Logging
         if rule.log_traffic:
+            logger.debug("Adding logging")
             log_cmd = cmd_parts[:-2] + [
                 "-j",
                 "LOG",
                 "--log-prefix",
                 f"[{rule.name or 'RULE'}] ",
             ]
-            return [" ".join(log_cmd), " ".join(cmd_parts)]
+            final_commands = [" ".join(log_cmd), " ".join(cmd_parts)]
+            logger.debug(f"Final commands with logging: {final_commands}")
+            return final_commands
 
-        return [" ".join(cmd_parts)]
+        final_command = [" ".join(cmd_parts)]
+        logger.debug(f"Final command: {final_command}")
+        return final_command
 
     def validate_commands(self, commands: List[str]) -> List[str]:
         """Validate iptables commands."""
@@ -477,11 +719,10 @@ class LinuxIptables(FirewallDevice):
     async def apply_commands(
         self, commands: List[str], dry_run: bool = False
     ) -> List[CommandResult]:
-        """Apply iptables commands."""
-        results = []
-
+        """Apply iptables commands to the device."""
         if dry_run:
             # Simulate command execution
+            results = []
             for command in commands:
                 results.append(
                     CommandResult(
@@ -504,14 +745,10 @@ class LinuxIptables(FirewallDevice):
                 )
             ]
 
-        # Execute each command
-        for command in commands:
-            result = await self.execute_command(command)
-            results.append(result)
+        logger.info(f"Applying {len(commands)} iptables commands...")
 
-            # Stop on first failure
-            if not result.success:
-                break
+        # Option 1: Execute commands individually (safer, stops on first error)
+        results = await self.execute_commands_batch(commands, stop_on_error=True)
 
         return results
 
