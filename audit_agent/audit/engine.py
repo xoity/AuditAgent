@@ -316,12 +316,24 @@ class RuleComparer:
         ]
 
         for device_rule in device_firewall_rules:
+            # Skip Docker-related rules unless they conflict with policy
+            if self._is_docker_related_rule(
+                device_rule.content
+            ) and not self._conflicts_with_policy(device_rule, policy_firewall_rules):
+                logger.debug(f"Skipping Docker-related rule: {device_rule.content}")
+                continue
+
             if not self._device_rule_covered_by_policy(
                 device_rule, policy_firewall_rules
             ):
+                # Determine severity based on rule type
+                severity = (
+                    "low" if self._is_system_rule(device_rule.content) else "medium"
+                )
+
                 issues.append(
                     ComplianceIssue(
-                        severity="medium",
+                        severity=severity,
                         rule_id=None,
                         rule_name=None,
                         issue_type="extra_rule",
@@ -329,10 +341,51 @@ class RuleComparer:
                         device="",
                         recommendation="Review if this rule is necessary or add it to the policy",
                         current_config=device_rule.content,
+                        expected_config=None,
                     )
                 )
 
         return issues
+
+    def _is_docker_related_rule(self, rule_content: str) -> bool:
+        """Check if a rule is Docker-related and should be ignored."""
+        docker_indicators = [
+            "docker",
+            "br-",
+            "DOCKER",
+            "FORWARD",
+            "PREROUTING",
+            "POSTROUTING",
+            "MASQUERADE",
+            "conntrack",
+            "addrtype",
+            "DNAT",
+            "SNAT",
+        ]
+        content_lower = rule_content.lower()
+        return any(
+            indicator.lower() in content_lower for indicator in docker_indicators
+        )
+
+    def _is_system_rule(self, rule_content: str) -> bool:
+        """Check if a rule is a system-level rule (lower priority for compliance)."""
+        system_indicators = [
+            "localhost",
+            "127.0.0.1",
+            "::1",
+            "lo interface",
+            "loopback",
+        ]
+        content_lower = rule_content.lower()
+        return any(indicator in content_lower for indicator in system_indicators)
+
+    def _conflicts_with_policy(
+        self, device_rule: ConfigurationItem, policy_rules: List[FirewallRule]
+    ) -> bool:
+        """Check if a Docker rule conflicts with explicit policy rules."""
+        # This is a placeholder for more sophisticated conflict detection
+        # For now, we assume Docker rules don't conflict with policy rules
+        return False
 
     def _device_rule_covered_by_policy(
         self, device_rule: ConfigurationItem, policy_rules: List[FirewallRule]
@@ -366,10 +419,11 @@ class AuditEngine:
             if device_result.is_compliant:
                 compliant_devices += 1
 
-        # Calculate overall compliance
-        overall_compliance = (
-            (compliant_devices / len(devices) * 100) if devices else 100
+        # Calculate overall compliance as average of device compliance percentages
+        total_compliance = sum(
+            device_result.compliance_percentage for device_result in device_results
         )
+        overall_compliance = (total_compliance / len(devices)) if devices else 100
 
         return PolicyAuditResult(
             policy_name=policy.metadata.name,

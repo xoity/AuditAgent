@@ -181,8 +181,12 @@ def main_callback(
 
 @app.command()
 def audit(
-    policy_file: Path = typer.Argument(..., help="Path to policy file (YAML or JSON)"),
-    devices_file: Path = typer.Argument(..., help="Path to devices configuration file"),
+    file1: Path = typer.Argument(
+        ..., help="Path to policy or devices file (YAML or JSON)"
+    ),
+    file2: Path = typer.Argument(
+        ..., help="Path to devices or policy file (YAML or JSON)"
+    ),
     output_format: str = typer.Option("text", help="Output format: text, json, html"),
     output_file: Optional[Path] = typer.Option(None, help="Output file path"),
     verbose: int = typer.Option(
@@ -197,6 +201,9 @@ def audit(
     setup_logging(min(verbose, 2))
 
     console.print("[bold blue]Starting Policy Audit...[/bold blue]")
+
+    # Auto-detect file types
+    policy_file, devices_file = auto_detect_file_types(file1, file2)
 
     # Load policy
     try:
@@ -253,8 +260,12 @@ def audit(
 
 @app.command()
 def enforce(
-    policy_file: Path = typer.Argument(..., help="Path to policy file (YAML or JSON)"),
-    devices_file: Path = typer.Argument(..., help="Path to devices configuration file"),
+    file1: Path = typer.Argument(
+        ..., help="Path to policy or devices file (YAML or JSON)"
+    ),
+    file2: Path = typer.Argument(
+        ..., help="Path to devices or policy file (YAML or JSON)"
+    ),
     dry_run: bool = typer.Option(True, help="Perform dry run without making changes"),
     output_format: str = typer.Option("text", help="Output format: text, json"),
     output_file: Optional[Path] = typer.Option(None, help="Output file path"),
@@ -280,6 +291,9 @@ def enforce(
             console.print("Enforcement cancelled.")
             logger.info("Enforcement cancelled by user")
             raise typer.Exit()
+
+    # Auto-detect file types
+    policy_file, devices_file = auto_detect_file_types(file1, file2)
 
     # Load policy and devices
     try:
@@ -457,6 +471,63 @@ def load_policy(policy_file: Path) -> NetworkPolicy:
         return NetworkPolicy.from_json(content)
     else:
         raise ValueError(f"Unsupported policy file format: {policy_file.suffix}")
+
+
+def auto_detect_file_types(file1: Path, file2: Path) -> tuple[Path, Path]:
+    """Auto-detect which file is policy and which is devices based on content."""
+    logger.debug(f"Auto-detecting file types for: {file1} and {file2}")
+
+    def is_policy_file(file_path: Path) -> bool:
+        """Check if a file contains policy content."""
+        try:
+            content = file_path.read_text()
+            if file_path.suffix.lower() in [".yaml", ".yml"]:
+                data = yaml.safe_load(content)
+            elif file_path.suffix.lower() == ".json":
+                data = json.loads(content)
+            else:
+                return False
+
+            # Check for policy indicators
+            policy_indicators = [
+                "metadata",
+                "firewall_rules",
+                "zones",
+                "nat_rules",
+                "vpn_rules",
+                "qos_rules",
+            ]
+            return any(key in data for key in policy_indicators)
+        except Exception:
+            return False
+
+    def is_devices_file(file_path: Path) -> bool:
+        """Check if a file contains devices content."""
+        try:
+            content = file_path.read_text()
+            if file_path.suffix.lower() in [".yaml", ".yml"]:
+                data = yaml.safe_load(content)
+            elif file_path.suffix.lower() == ".json":
+                data = json.loads(content)
+            else:
+                return False
+
+            # Check for devices indicators
+            return "devices" in data and isinstance(data["devices"], list)
+        except Exception:
+            return False
+
+    # Determine which is which
+    if is_policy_file(file1) and is_devices_file(file2):
+        logger.debug(f"Detected: {file1} = policy, {file2} = devices")
+        return file1, file2
+    elif is_policy_file(file2) and is_devices_file(file1):
+        logger.debug(f"Detected: {file2} = policy, {file1} = devices")
+        return file2, file1
+    else:
+        # Fallback to original order if detection fails
+        logger.warning("Could not auto-detect file types, using original order")
+        return file1, file2
 
 
 def load_devices(devices_file: Path) -> List:

@@ -2,10 +2,12 @@
 Network Security Policy definition and management.
 """
 
-from typing import List, Dict, Optional, Union, Any
+from typing import Any, Dict, List, Optional, Union
+
 from pydantic import BaseModel
-from .rules import BaseRule, FirewallRule, NATRule, VPNRule, QoSRule
+
 from .objects import Zone
+from .rules import BaseRule, FirewallRule, NATRule, QoSRule, VPNRule
 
 
 class PolicyMetadata(BaseModel):
@@ -297,7 +299,7 @@ class NetworkPolicy(BaseModel):
 
     def audit(self, devices: List[Any]) -> Any:
         """Audit the policy against actual device configurations."""
-        # Import here to avoid circular imports
+
         from ..audit.engine import AuditEngine
 
         audit_engine = AuditEngine()
@@ -307,7 +309,7 @@ class NetworkPolicy(BaseModel):
 
     def enforce(self, devices: List[Any], dry_run: bool = False) -> Any:
         """Enforce the policy on the given devices."""
-        # Import here to avoid circular imports
+
         from ..enforcement.engine import EnforcementEngine
 
         enforcement_engine = EnforcementEngine()

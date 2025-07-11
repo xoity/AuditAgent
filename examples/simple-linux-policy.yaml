@@ -1,0 +1,136 @@
+metadata:
+  name: "simple-linux-policy"
+  version: "1.0"
+  description: "Simple Linux firewall policy for SSH and HTTP access"
+  author: "AuditAgent"
+
+zones:
+  local:
+    name: "local"
+    description: "Local server"
+    networks:
+      - cidr: "192.168.0.0/24"
+
+firewall_rules:
+  - name: "allow-ssh"
+    description: "Allow SSH access on port 22"
+    enabled: true
+    priority: 10
+    action: "allow"
+    direction: "inbound"
+    protocol:
+      name: "tcp"
+      number: 6
+    source_ips:
+      - cidr: "0.0.0.0/0"
+    destination_ips:
+      - cidr: "192.168.0.111/32"
+    destination_ports:
+      - number: 22
+    log_traffic: false
+
+  - name: "allow-http"
+    description: "Allow HTTP access on port 80"
+    enabled: true
+    priority: 20
+    action: "allow"
+    direction: "inbound"
+    protocol:
+      name: "tcp"
+      number: 6
+    source_ips:
+      - cidr: "0.0.0.0/0"
+    destination_ips:
+      - cidr: "192.168.0.111/32"
+    destination_ports:
+      - number: 80
+    log_traffic: false
+    
+  - name: "allow-https"
+    description: "Allow HTTPS access on port 443"
+    enabled: true
+    priority: 30
+    action: "allow"
+    direction: "inbound"
+    protocol:
+      name: "tcp"
+      number: 6
+    source_ips:
+      - cidr: "0.0.0.0/0"
+    destination_ips:
+      - cidr: "192.168.0.111/32"
+    destination_ports:
+      - number: 443
+    log_traffic: false
+    
+  - name: "allow-dns"
+    description: "Allow DNS queries on port 53"
+    enabled: true
+    priority: 40
+    action: "allow"
+    direction: "outbound"
+    protocol:
+      name: "udp"
+      number: 17
+    source_ips:
+      - cidr: "192.168.0.111/32"
+    destination_ips:
+      - cidr: "8.8.8.8/32"
+      - cidr: "8.8.4.4/32"
+    destination_ports:
+      - number: 53
+    log_traffic: true
+    
+  - name: "block-rdp"
+    description: "Block Remote Desktop Protocol access"
+    enabled: true
+    priority: 50
+    action: "deny"
+    direction: "inbound"
+    protocol:
+      name: "tcp"
+      number: 6
+    source_ips:
+      - cidr: "0.0.0.0/0"
+    destination_ips:
+      - cidr: "192.168.0.0/24"
+    destination_ports:
+      - number: 3389
+    log_traffic: true
+    
+  - name: "block-telnet"
+    description: "Block insecure telnet access"
+    enabled: true
+    priority: 60
+    action: "deny"
+    direction: "inbound"
+    protocol:
+      name: "tcp" 
+      number: 6
+    source_ips:
+      - cidr: "0.0.0.0/0"
+    destination_ips:
+      - cidr: "192.168.0.0/24"
+    destination_ports:
+      - number: 23
+    log_traffic: true
+    
+  - name: "allow-icmp"
+    description: "Allow ICMP for diagnostic purposes"
+    enabled: true
+    priority: 70
+    action: "allow"
+    direction: "inbound"
+    protocol:
+      name: "icmp"
+      number: 1
+    source_ips:
+      - cidr: "192.168.0.0/24"
+    destination_ips:
+      - cidr: "192.168.0.111/32"
+    log_traffic: false
+
+nat_rules: []
+vpn_rules: []
+qos_rules: []
+global_settings: {}
