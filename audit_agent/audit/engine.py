@@ -4,7 +4,7 @@ Audit engine for comparing policies against device configurations.
 
 import datetime
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from pydantic import BaseModel
 
@@ -30,7 +30,7 @@ class ComplianceIssue:
     device: str
     recommendation: str
     current_config: Optional[str] = None
-    expected_config: Optional[str] = None
+    expected_config: Optional[Union[str, "FirewallRule"]] = None
 
 
 @dataclass
@@ -114,7 +114,7 @@ class RuleComparer:
                     description=f"Required firewall rule '{policy_rule.name or policy_rule.id}' is missing from device",
                     device="",  # Will be set by caller
                     recommendation="Add the missing firewall rule to the device configuration",
-                    expected_config=str(policy_rule),
+                    expected_config=policy_rule,
                 )
             )
         else:
@@ -540,11 +540,14 @@ class AuditEngine:
         )
 
     def generate_audit_report(
-        self, audit_result: PolicyAuditResult, format: str = "text"
+        self,
+        audit_result: PolicyAuditResult,
+        format: str = "text",
+        full_report: bool = False,
     ) -> str:
         """Generate a human-readable audit report."""
         if format == "text":
-            return self._generate_text_report(audit_result)
+            return self._generate_text_report(audit_result, full_report)
         elif format == "html":
             return self._generate_html_report(audit_result)
         elif format == "json":
@@ -552,7 +555,9 @@ class AuditEngine:
         else:
             raise ValueError(f"Unsupported report format: {format}")
 
-    def _generate_text_report(self, audit_result: PolicyAuditResult) -> str:
+    def _generate_text_report(
+        self, audit_result: PolicyAuditResult, full_report: bool = False
+    ) -> str:
         """Generate a text-based audit report."""
         report = []
         report.append("=" * 80)
@@ -574,13 +579,115 @@ class AuditEngine:
         # Summary by severity
         critical_issues = audit_result.get_critical_issues()
         high_issues = audit_result.get_high_issues()
+        medium_issues = audit_result.get_issues_by_severity("medium")
+        low_issues = audit_result.get_issues_by_severity("low")
 
         report.append("ISSUE SUMMARY BY SEVERITY:")
         report.append(f"  Critical: {len(critical_issues)}")
         report.append(f"  High: {len(high_issues)}")
-        report.append(f"  Medium: {len(audit_result.get_issues_by_severity('medium'))}")
-        report.append(f"  Low: {len(audit_result.get_issues_by_severity('low'))}")
+        report.append(f"  Medium: {len(medium_issues)}")
+        report.append(f"  Low: {len(low_issues)}")
         report.append("")
+
+        # Show detailed issues if full_report is enabled
+        if full_report:
+            report.append("DETAILED ISSUES BY SEVERITY:")
+            report.append("=" * 80)
+
+            # Critical Issues
+            if critical_issues:
+                report.append("")
+                report.append("CRITICAL ISSUES:")
+                report.append("-" * 40)
+                for i, issue in enumerate(critical_issues, 1):
+                    report.append(f"{i}. {issue.description}")
+                    report.append(f"   Device: {issue.device}")
+                    report.append(f"   Type: {issue.issue_type}")
+                    if issue.rule_name:
+                        report.append(f"   Rule: {issue.rule_name}")
+                    report.append(f"   Recommendation: {issue.recommendation}")
+                    if issue.current_config:
+                        report.append(f"   Current Config: {issue.current_config}")
+                    if issue.expected_config:
+                        report.append("   Expected Config:")
+                        formatted_config = self._format_firewall_rule(
+                            issue.expected_config
+                        )
+                        for line in formatted_config.split("\n"):
+                            report.append(f"     {line}")
+                    report.append("")
+
+            # High Issues
+            if high_issues:
+                report.append("")
+                report.append("HIGH PRIORITY ISSUES:")
+                report.append("-" * 40)
+                for i, issue in enumerate(high_issues, 1):
+                    report.append(f"{i}. {issue.description}")
+                    report.append(f"   Device: {issue.device}")
+                    report.append(f"   Type: {issue.issue_type}")
+                    if issue.rule_name:
+                        report.append(f"   Rule: {issue.rule_name}")
+                    report.append(f"   Recommendation: {issue.recommendation}")
+                    if issue.current_config:
+                        report.append(f"   Current Config: {issue.current_config}")
+                    if issue.expected_config:
+                        report.append("   Expected Config:")
+                        formatted_config = self._format_firewall_rule(
+                            issue.expected_config
+                        )
+                        for line in formatted_config.split("\n"):
+                            report.append(f"     {line}")
+                    report.append("")
+
+            # Medium Issues
+            if medium_issues:
+                report.append("")
+                report.append("MEDIUM PRIORITY ISSUES:")
+                report.append("-" * 40)
+                for i, issue in enumerate(medium_issues, 1):
+                    report.append(f"{i}. {issue.description}")
+                    report.append(f"   Device: {issue.device}")
+                    report.append(f"   Type: {issue.issue_type}")
+                    if issue.rule_name:
+                        report.append(f"   Rule: {issue.rule_name}")
+                    report.append(f"   Recommendation: {issue.recommendation}")
+                    if issue.current_config:
+                        report.append(f"   Current Config: {issue.current_config}")
+                    if issue.expected_config:
+                        report.append("   Expected Config:")
+                        formatted_config = self._format_firewall_rule(
+                            issue.expected_config
+                        )
+                        for line in formatted_config.split("\n"):
+                            report.append(f"     {line}")
+                    report.append("")
+
+            # Low Issues
+            if low_issues:
+                report.append("")
+                report.append("LOW PRIORITY ISSUES:")
+                report.append("-" * 40)
+                for i, issue in enumerate(low_issues, 1):
+                    report.append(f"{i}. {issue.description}")
+                    report.append(f"   Device: {issue.device}")
+                    report.append(f"   Type: {issue.issue_type}")
+                    if issue.rule_name:
+                        report.append(f"   Rule: {issue.rule_name}")
+                    report.append(f"   Recommendation: {issue.recommendation}")
+                    if issue.current_config:
+                        report.append(f"   Current Config: {issue.current_config}")
+                    if issue.expected_config:
+                        report.append("   Expected Config:")
+                        formatted_config = self._format_firewall_rule(
+                            issue.expected_config
+                        )
+                        for line in formatted_config.split("\n"):
+                            report.append(f"     {line}")
+                    report.append("")
+
+            report.append("=" * 80)
+            report.append("")
 
         # Device details
         report.append("DEVICE AUDIT RESULTS:")
@@ -591,7 +698,8 @@ class AuditEngine:
             report.append(f"  Compliance: {device_result.compliance_percentage:.1f}%")
             report.append(f"  Issues: {len(device_result.issues)}")
 
-            if device_result.issues:
+            if device_result.issues and not full_report:
+                # Show only critical and high issues in summary mode
                 report.append("  Critical Issues:")
                 for issue in device_result.issues:
                     if issue.severity == "critical":
@@ -622,3 +730,44 @@ class AuditEngine:
         </body>
         </html>
         """
+
+    def _format_firewall_rule(self, rule) -> str:
+        """Format a firewall rule for display in reports."""
+        if not rule:
+            return "N/A"
+
+        # Import here to avoid circular imports
+        from ..core.rules import FirewallRule
+
+        if not isinstance(rule, FirewallRule):
+            return str(rule)
+
+        lines = []
+        lines.append(f"Rule: {rule.name}")
+        lines.append(f"    Description: {rule.description}")
+        lines.append(f"    Action: {rule.action.value}")
+        lines.append(f"    Direction: {rule.direction.value}")
+        lines.append(f"    Protocol: {rule.protocol.name if rule.protocol else 'N/A'}")
+
+        if rule.source_ips:
+            source_ips = ", ".join([str(ip) for ip in rule.source_ips])
+            lines.append(f"    Source IPs: {source_ips}")
+
+        if rule.destination_ips:
+            dest_ips = ", ".join([str(ip) for ip in rule.destination_ips])
+            lines.append(f"    Destination IPs: {dest_ips}")
+
+        if rule.source_ports:
+            source_ports = ", ".join([str(port) for port in rule.source_ports])
+            lines.append(f"    Source Ports: {source_ports}")
+
+        if rule.destination_ports:
+            dest_ports = ", ".join([str(port) for port in rule.destination_ports])
+            lines.append(f"    Destination Ports: {dest_ports}")
+
+        if rule.log_traffic:
+            lines.append("    Logging: Enabled")
+
+        lines.append(f"    Priority: {rule.priority}")
+
+        return "\n".join(lines)

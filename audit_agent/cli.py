@@ -49,13 +49,20 @@ def help_callback(ctx: typer.Context, param: typer.CallbackParam, value: bool):
     )
     console.print("  Audit devices against a network security policy")
     console.print("  [bold]Arguments:[/bold]")
-    console.print("    policy_file    Path to policy file (YAML or JSON) [required]")
-    console.print("    devices_file   Path to devices configuration file [required]")
+    console.print(
+        "    file1    Path to policy or devices file (YAML or JSON) [required]"
+    )
+    console.print(
+        "    file2    Path to devices or policy file (YAML or JSON) [required]"
+    )
     console.print("  [bold]Options:[/bold]")
     console.print(
         "    --output-format TEXT    Output format: text, json, html [default: text]"
     )
     console.print("    --output-file PATH      Output file path")
+    console.print(
+        "    --full-report           Show detailed issues for all severity levels"
+    )
     console.print(
         "    -v, --verbose           Increase verbosity (-v, -vv) [default: 0]"
     )
@@ -189,6 +196,9 @@ def audit(
     ),
     output_format: str = typer.Option("text", help="Output format: text, json, html"),
     output_file: Optional[Path] = typer.Option(None, help="Output file path"),
+    full_report: bool = typer.Option(
+        False, "--full-report", help="Show detailed issues for all severity levels"
+    ),
     verbose: int = typer.Option(
         0, "-v", "--verbose", count=True, help="Increase verbosity (-v, -vv)"
     ),
@@ -245,7 +255,7 @@ def audit(
             raise typer.Exit(1)
 
     # Generate report
-    report = audit_engine.generate_audit_report(result, output_format)
+    report = audit_engine.generate_audit_report(result, output_format, full_report)
 
     if output_file:
         output_file.write_text(report)
