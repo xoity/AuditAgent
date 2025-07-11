@@ -230,8 +230,8 @@ class CredentialManager:
         Returns:
             Passphrase string or None if not needed
         """
-        # Create a unique cache key for this credential
-        cache_key = f"passphrase:{key_path}:{username}@{host}"
+        # Create a unique cache key for this credential (key file path only)
+        cache_key = f"passphrase:{key_path}"
 
         # Check cache first
         if cache_key in self._credential_cache:

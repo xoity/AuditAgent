@@ -4,6 +4,13 @@ devices:
     host: "192.168.0.111"
     port: 22
     username: "vagrant"
-    password: "vagrant"
-    sudo_password: "vagrant"
+    private_key: "~/.ssh/id_rsa"
     description: "Primary web server"
+
+  - type: "linux_iptables"
+    name: "web-server-02"
+    host: "192.168.0.237"
+    port: 22
+    username: "vagrant"
+    private_key: "~/.ssh/id_rsa"
+    description: "Secondary web server"

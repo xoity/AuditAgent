@@ -39,12 +39,16 @@ devices:
 ```
 
 When you run AuditAgent, you'll see:
-```
+
+``` plaintext
 Enter passphrase for /home/user/.ssh/id_rsa: [hidden input]
-Enter sudo password for vagrant@192.168.0.111: [hidden input]
 ```
 
 ### 3. Password Authentication with Dynamic Prompting
+
+``` plaintext
+Enter SSH password for vagrant@192.168.0.111: [hidden input]
+```
 
 For systems without SSH keys:
 
@@ -94,7 +98,6 @@ Credentials are cached for the session to avoid repeated prompts:
 # First connection prompts for credentials
 python -m audit_agent.cli audit policy.yaml devices.yaml
 Enter passphrase for /home/user/.ssh/id_rsa: [hidden input]
-Enter sudo password for vagrant@192.168.0.111: [hidden input]
 
 # Subsequent operations use cached credentials
 python -m audit_agent.cli enforce policy.yaml devices.yaml
@@ -115,25 +118,28 @@ python -m audit_agent.cli audit policy.yaml devices.yaml
 
 ### Environment Variables (CI/CD)
 
-For automated environments, you can still use environment variables:
+For automated environments, you can set SSH passwords via environment variables:
 
 ```bash
 # Set environment variables
 export AUDIT_AGENT_SSH_PASSWORD="secret"
-export AUDIT_AGENT_SUDO_PASSWORD="admin"
 
 # Run AuditAgent
 python -m audit_agent.cli audit policy.yaml devices.yaml
 ```
+
+Note: Sudo operations use passwordless sudo only.
 
 ## Migration from Hardcoded Credentials
 
 ### Step 1: Remove Hardcoded Credentials
 
 Remove these fields from your `devices.yaml`:
+
 - `password`
 - `private_key_passphrase`
-- `sudo_password`
+
+Note: `sudo_password` is no longer supported - AuditAgent uses passwordless sudo only.
 
 ### Step 2: Set Up SSH Agent (Recommended)
 
@@ -183,6 +189,7 @@ chmod 700 ~/.ssh
 ### Connection Timeouts
 
 Increase timeout in devices.yaml:
+
 ```yaml
 connection_settings:
   timeout: 60  # Increase from default 30
