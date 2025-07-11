@@ -5,6 +5,7 @@ Linux iptables firewall device implementation.
 import re
 from typing import List, Optional
 
+from ..core.credentials import credential_manager
 from ..core.logging_config import get_logger
 from ..core.rules import Action, BaseRule, FirewallRule
 from .base import (
@@ -28,9 +29,7 @@ class LinuxIptables(FirewallDevice):
         username: str,
         password: Optional[str] = None,
         private_key: Optional[str] = None,
-        private_key_passphrase: Optional[str] = None,
         port: int = 22,
-        sudo_password: Optional[str] = None,
     ):
         from .base import DeviceCredentials
 
@@ -38,19 +37,23 @@ class LinuxIptables(FirewallDevice):
             username=username,
             password=password,
             private_key=private_key,
-            private_key_passphrase=private_key_passphrase,
         )
         connection = DeviceConnection(
             host=host, port=port, protocol="ssh", credentials=credentials
         )
         super().__init__(connection)
-        self.sudo_password = sudo_password
+        # Removed insecure sudo_password assignment
         self._ssh_client = None
 
     async def connect(self) -> bool:
         """Connect to the Linux server via SSH."""
         try:
             import paramiko
+
+            # Validate required credentials
+            if not self.connection.credentials.username:
+                logger.error("SSH username is required")
+                return False
 
             self._ssh_client = paramiko.SSHClient()
             self._ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -62,86 +65,114 @@ class LinuxIptables(FirewallDevice):
                 "timeout": self.connection.timeout,
             }
 
+            # Try SSH agent first if available
+            if credential_manager.is_ssh_agent_available():
+                agent_key = credential_manager.try_ssh_agent_keys(
+                    self.connection.credentials.username,
+                    self.connection.host,
+                    self.connection.port or 22,
+                )
+                if agent_key:
+                    connect_kwargs["pkey"] = agent_key
+                    logger.debug("Using SSH agent for authentication")
+
+                    # Try to connect with SSH agent
+                    try:
+                        self._ssh_client.connect(**connect_kwargs)
+
+                        # Test connection
+                        stdin, stdout, stderr = self._ssh_client.exec_command(
+                            "echo 'test'"
+                        )
+                        stdout.read()
+
+                        self._connected = True
+                        self._device_info = await self.get_device_info()
+
+                        logger.info(
+                            f"Successfully connected to {self.connection.host} using SSH agent"
+                        )
+                        return True
+
+                    except Exception as e:
+                        logger.debug(f"SSH agent authentication failed: {e}")
+                        # Fall through to other authentication methods
+
+            # Try private key authentication
             if self.connection.credentials.private_key:
-                # Use private key authentication
-                key_path = self.connection.credentials.private_key
+                key = credential_manager.load_private_key(
+                    self.connection.credentials.private_key,
+                    self.connection.credentials.username,
+                    self.connection.host,
+                )
 
-                # Try to load the private key, handling both encrypted and unencrypted keys
-                key = None
+                if key:
+                    connect_kwargs["pkey"] = key
+                    logger.debug("Using private key for authentication")
+
+                    try:
+                        self._ssh_client.connect(**connect_kwargs)
+
+                        # Test connection
+                        stdin, stdout, stderr = self._ssh_client.exec_command(
+                            "echo 'test'"
+                        )
+                        stdout.read()
+
+                        self._connected = True
+                        self._device_info = await self.get_device_info()
+
+                        logger.info(
+                            f"Successfully connected to {self.connection.host} using private key"
+                        )
+                        return True
+
+                    except Exception as e:
+                        logger.debug(f"Private key authentication failed: {e}")
+                        # Fall through to password authentication
+                else:
+                    logger.warning(
+                        f"Could not load private key: {self.connection.credentials.private_key}"
+                    )
+
+            # Try password authentication
+            password = self.connection.credentials.password
+            if not password:
+                # Prompt for password if not provided
+                password = credential_manager.get_ssh_password(
+                    self.connection.credentials.username, self.connection.host
+                )
+
+            if password:
+                connect_kwargs["password"] = password
+                logger.debug("Using password for authentication")
+
                 try:
-                    # First, try without passphrase (unencrypted key)
-                    key = paramiko.RSAKey.from_private_key_file(key_path)
-                except paramiko.PasswordRequiredException:
-                    # Key is encrypted, use provided passphrase
-                    passphrase = self.connection.credentials.private_key_passphrase
-                    if not passphrase:
-                        raise ValueError(
-                            "Private key is encrypted but no passphrase provided"
-                        )
+                    self._ssh_client.connect(**connect_kwargs)
 
-                    try:
-                        key = paramiko.RSAKey.from_private_key_file(
-                            key_path, password=passphrase
-                        )
-                    except paramiko.SSHException:
-                        # Try other key types if RSA fails
-                        try:
-                            key = paramiko.Ed25519Key.from_private_key_file(
-                                key_path, password=passphrase
-                            )
-                        except paramiko.SSHException:
-                            try:
-                                key = paramiko.ECDSAKey.from_private_key_file(
-                                    key_path, password=passphrase
-                                )
-                            except paramiko.SSHException:
-                                try:
-                                    key = paramiko.DSSKey.from_private_key_file(
-                                        key_path, password=passphrase
-                                    )
-                                except paramiko.SSHException:
-                                    raise ValueError(
-                                        "Unable to load private key with provided passphrase"
-                                    )
-                except paramiko.SSHException:
-                    # Try other key types for unencrypted keys
-                    try:
-                        key = paramiko.Ed25519Key.from_private_key_file(key_path)
-                    except paramiko.SSHException:
-                        try:
-                            key = paramiko.ECDSAKey.from_private_key_file(key_path)
-                        except paramiko.SSHException:
-                            try:
-                                key = paramiko.DSSKey.from_private_key_file(key_path)
-                            except paramiko.SSHException:
-                                raise ValueError("Unable to load private key")
+                    # Test connection
+                    stdin, stdout, stderr = self._ssh_client.exec_command("echo 'test'")
+                    stdout.read()
 
-                connect_kwargs["pkey"] = key
-            elif self.connection.credentials.password:
-                # Use password authentication
-                connect_kwargs["password"] = self.connection.credentials.password
+                    self._connected = True
+                    self._device_info = await self.get_device_info()
+
+                    logger.info(
+                        f"Successfully connected to {self.connection.host} using password"
+                    )
+                    return True
+
+                except Exception as e:
+                    logger.error(f"Password authentication failed: {e}")
+                    return False
             else:
-                raise ValueError("Either password or private_key must be provided")
-
-            self._ssh_client.connect(**connect_kwargs)
-
-            # Test connection with a simple command
-            try:
-                stdin, stdout, stderr = self._ssh_client.exec_command("echo 'test'")
-                stdout.read()  # Just read to test the connection
-                self._connected = True
-                # Get device info
-                self._device_info = await self.get_device_info()
-                return True
-            except Exception as e:
-                logger.error(f"Connection test failed: {e}")
+                logger.error("No authentication method available")
                 return False
 
         except Exception as e:
             self._connected = False
             logger.error(f"Failed to connect to {self.connection.host}: {e}")
-
-        return False
+            return False
 
     async def disconnect(self) -> None:
         """Disconnect from the server."""
@@ -272,10 +303,6 @@ class LinuxIptables(FirewallDevice):
                     else None
                 )
 
-            # Clean up sudo password from error output for security
-            if error and self.sudo_password:
-                error = error.replace(self.sudo_password, "***")
-
             result = CommandResult(
                 command=original_command,
                 success=exit_code == 0,
@@ -305,8 +332,6 @@ class LinuxIptables(FirewallDevice):
 
     def _build_shell_command(self, command: str, use_sudo: bool = False) -> str:
         """Build a shell command with proper escaping."""
-        import shlex
-
         # Start with a clean shell environment
         shell_parts = []
 
@@ -315,16 +340,8 @@ class LinuxIptables(FirewallDevice):
 
         # Handle sudo if needed
         if use_sudo:
-            if self.sudo_password:
-                # Use a more secure approach for sudo with password
-                # Create a temporary script to avoid password exposure in process list
-                sudo_command = (
-                    f"echo {shlex.quote(self.sudo_password)} | sudo -S -p '' "
-                )
-                shell_parts.append(f"{sudo_command} {command}")
-            else:
-                # Use sudo without password (assumes passwordless sudo or existing sudo session)
-                shell_parts.append(f"sudo {command}")
+            # Use sudo without password (assumes passwordless sudo or existing sudo session)
+            shell_parts.append(f"sudo {command}")
         else:
             shell_parts.append(command)
 

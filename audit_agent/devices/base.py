@@ -16,7 +16,7 @@ class DeviceCredentials(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     private_key: Optional[str] = None
-    private_key_passphrase: Optional[str] = None
+    # Removed insecure private_key_passphrase field
     api_key: Optional[str] = None
     token: Optional[str] = None
 

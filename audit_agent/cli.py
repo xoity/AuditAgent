@@ -10,7 +10,6 @@ from typing import List, Optional
 import typer
 import yaml
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from .audit.engine import AuditEngine
@@ -238,21 +237,16 @@ def audit(
     # Run audit
     audit_engine = AuditEngine()
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Auditing devices...", total=None)
+    console.print("Connecting to devices...")
 
-        try:
-            result = asyncio.run(audit_engine.audit_policy(policy, devices))
-            progress.update(task, completed=True, description="✓ Audit completed")
-            logger.info("Audit completed successfully")
-        except Exception as e:
-            console.print(f"[red]Error during audit: {e}[/red]")
-            logger.error(f"Error during audit: {e}")
-            raise typer.Exit(1)
+    try:
+        result = asyncio.run(audit_engine.audit_policy(policy, devices))
+        console.print("✓ Audit completed")
+        logger.info("Audit completed successfully")
+    except Exception as e:
+        console.print(f"[red]Error during audit: {e}[/red]")
+        logger.error(f"Error during audit: {e}")
+        raise typer.Exit(1)
 
     # Generate report
     report = audit_engine.generate_audit_report(result, output_format, full_report)
@@ -321,23 +315,18 @@ def enforce(
     # Run enforcement
     enforcement_engine = EnforcementEngine()
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Enforcing policy...", total=None)
+    console.print("Connecting to devices...")
 
-        try:
-            result = asyncio.run(
-                enforcement_engine.enforce_policy(policy, devices, dry_run)
-            )
-            progress.update(task, completed=True, description="✓ Enforcement completed")
-            logger.info("Enforcement completed successfully")
-        except Exception as e:
-            console.print(f"[red]Error during enforcement: {e}[/red]")
-            logger.error(f"Error during enforcement: {e}")
-            raise typer.Exit(1)
+    try:
+        result = asyncio.run(
+            enforcement_engine.enforce_policy(policy, devices, dry_run)
+        )
+        console.print("✓ Enforcement completed")
+        logger.info("Enforcement completed successfully")
+    except Exception as e:
+        console.print(f"[red]Error during enforcement: {e}[/red]")
+        logger.error(f"Error during enforcement: {e}")
+        raise typer.Exit(1)
 
     # Generate report
     report = enforcement_engine.generate_enforcement_report(result, output_format)
@@ -563,14 +552,27 @@ def load_devices(devices_file: Path) -> List:
 
         if device_type == "linux_iptables":
             logger.debug("Creating LinuxIptables device...")
+
+            # Check for deprecated hardcoded credentials
+            deprecated_fields = []
+            if device_config.get("password"):
+                deprecated_fields.append("password")
+
+            if deprecated_fields:
+                console.print(
+                    f"[yellow]⚠️  Warning: Device '{device_config.get('name', 'unnamed')}' has hardcoded credentials: {', '.join(deprecated_fields)}[/yellow]"
+                )
+                console.print(
+                    "[yellow]   This is a security risk. Consider removing these fields and using dynamic prompting.[/yellow]"
+                )
+
             device = LinuxIptables(
                 host=device_config["host"],
                 username=device_config["username"],
                 password=device_config.get("password"),
                 private_key=device_config.get("private_key"),
-                private_key_passphrase=device_config.get("private_key_passphrase"),
                 port=device_config.get("port", 22),
-                sudo_password=device_config.get("sudo_password"),
+                # Removed insecure credential fields
             )
             devices.append(device)
             logger.debug(f"Created device: {device}")
