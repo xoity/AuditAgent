@@ -312,49 +312,57 @@ class RuleComparer:
         """Check if there's a corresponding LOG rule for a policy rule."""
         # This method needs access to all device rules to check for LOG rules
         # For now, we'll set this in the compare_firewall_rule method
-        if hasattr(self, '_current_device_config'):
+        if hasattr(self, "_current_device_config"):
             device_config = self._current_device_config
-            
+
             # Look for LOG rules that match this policy rule
             for config_item in device_config:
-                if config_item.type == "firewall_rule" and "log" in config_item.content.lower():
+                if (
+                    config_item.type == "firewall_rule"
+                    and "log" in config_item.content.lower()
+                ):
                     # Check if this LOG rule corresponds to the policy rule
-                    if self._log_rule_matches_policy(policy_rule, config_item, device_rule):
+                    if self._log_rule_matches_policy(
+                        policy_rule, config_item, device_rule
+                    ):
                         return True
-        
+
         return False
 
     def _log_rule_matches_policy(
-        self, policy_rule: FirewallRule, log_rule: ConfigurationItem, main_rule: ConfigurationItem
+        self,
+        policy_rule: FirewallRule,
+        log_rule: ConfigurationItem,
+        main_rule: ConfigurationItem,
     ) -> bool:
         """Check if a LOG rule matches a policy rule."""
         log_content = log_rule.content.lower()
-        
+
         # Check if log rule has the policy rule name in the prefix
         if policy_rule.name and f"[{policy_rule.name}]" in log_content:
             return True
-        
+
         # Check if the LOG rule has similar parameters to the main rule
         main_content = main_rule.content.lower()
-        
+
         # Extract key components from both rules and compare
         # This is a simplified comparison - in practice, you'd want more robust parsing
-        
+
         # Check if they have the same chain
         main_chain = self._extract_chain_from_rule(main_content)
         log_chain = self._extract_chain_from_rule(log_content)
-        
+
         if main_chain != log_chain:
             return False
-            
+
         # Check if they have similar IP/port patterns
         # This is a heuristic - LOG rules should have similar patterns to their corresponding main rules
         main_parts = main_content.split()
         log_parts = log_content.split()
-        
+
         # Look for common IP addresses or ports
         common_elements = set(main_parts) & set(log_parts)
-        
+
         # If they share several common elements (IPs, ports, protocols), they likely match
         return len(common_elements) > 3
 
@@ -373,22 +381,22 @@ class RuleComparer:
     ) -> bool:
         """Check if a device rule is a LOG rule that corresponds to a policy rule."""
         device_content = device_rule.content.lower()
-        
+
         # Check if this is a LOG rule
         if "-j log" not in device_content:
             return False
-            
+
         # Check if any policy rule with logging enabled could match this LOG rule
         for policy_rule in policy_rules:
             if policy_rule.log_traffic:
                 # Check if the LOG rule has the policy rule name in the prefix
                 if policy_rule.name and f"[{policy_rule.name}]" in device_content:
                     return True
-                    
+
                 # Check if the LOG rule matches the policy rule's parameters
                 if self._log_rule_matches_policy_rule(device_rule, policy_rule):
                     return True
-        
+
         return False
 
     def _log_rule_matches_policy_rule(
@@ -396,19 +404,21 @@ class RuleComparer:
     ) -> bool:
         """Check if a LOG rule matches a policy rule's parameters."""
         log_content = log_rule.content.lower()
-        
+
         # Check direction/chain
         if policy_rule.direction.value == "inbound" and "-a input" not in log_content:
             return False
-        elif policy_rule.direction.value == "outbound" and "-a output" not in log_content:
+        elif (
+            policy_rule.direction.value == "outbound" and "-a output" not in log_content
+        ):
             return False
-            
+
         # Check protocol
         if policy_rule.protocol and policy_rule.protocol.name != "any":
             protocol_check = f"-p {policy_rule.protocol.name}"
             if protocol_check not in log_content:
                 return False
-        
+
         # Check destination ports
         if policy_rule.destination_ports:
             port = policy_rule.destination_ports[0]
@@ -416,7 +426,7 @@ class RuleComparer:
                 port_check = f"--dport {port.number}"
                 if port_check not in log_content:
                     return False
-        
+
         # Check source IPs
         if policy_rule.source_ips:
             source_ip = policy_rule.source_ips[0]
@@ -425,15 +435,15 @@ class RuleComparer:
                 source_check = f"-s {ip_str}"
                 if source_check not in log_content:
                     return False
-        
-        # Check destination IPs  
+
+        # Check destination IPs
         if policy_rule.destination_ips:
             dest_ip = policy_rule.destination_ips[0]
             ip_str = str(dest_ip)
             dest_check = f"-d {ip_str}"
             if dest_check not in log_content:
                 return False
-        
+
         return True
 
     def find_extra_rules(
@@ -463,7 +473,9 @@ class RuleComparer:
 
             # Skip LOG rules that correspond to policy rules with logging enabled
             if self._is_log_rule_for_policy(device_rule, policy_firewall_rules):
-                logger.debug(f"Skipping LOG rule that corresponds to policy: {device_rule.content}")
+                logger.debug(
+                    f"Skipping LOG rule that corresponds to policy: {device_rule.content}"
+                )
                 continue
 
             if not self._device_rule_covered_by_policy(
