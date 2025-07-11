@@ -1,6 +1,18 @@
-# AuditAgent - Linux iptables Policy Enforcer & Auditor
+# AuditAgent - Linux iptables Policy Enforcer & Auditor [![PyPI version](https://img.shields.io/pypi/v/auditagent)](https://pypi.org/project/auditagent/) [![License](https://img.shields.io/github/license/xoity/AuditAgent)](LICENSE) [![Build Status](https://img.shields.io/github/actions/workflow/status/xoity/AuditAgent/ci.yml?branch=main)](https://github.com/xoity/AuditAgent/actions)
 
-A Python framework for declaratively defining and enforcing iptables firewall policies across Linux servers without requiring agents on the servers themselves.
+- A Python framework for declaratively defining and enforcing iptables firewall policies across Linux servers without requiring agents on the servers themselves.
+
+## Table of Contents
+
+- [Features](#features)
+- [Getting Started](#getting-started)
+- [Configuration Guide](#configuration-guide)
+- [Examples](#examples)
+- [Installation](#installation)
+- [Project Structure](#project-structure)
+- [Supported Devices](#supported-devices)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
@@ -11,51 +23,22 @@ A Python framework for declaratively defining and enforcing iptables firewall po
 - **Pre-flight Validation**: Simulate changes before applying them
 - **SSH Authentication**: Support for password and key-based authentication
 
-## Quick Start
+## Getting Started
 
-```python
-from audit_agent import NetworkPolicy, FirewallRule, IPRange
+Refer to the [Getting Started guide](GETTING_STARTED.md) for installation steps, example code, and CLI usage.
 
-# Define a security policy
-policy = NetworkPolicy("production-web-servers")
+## Configuration Guide
 
-# SSH access only from management subnets
-policy.add_rule(
-    FirewallRule()
-    .allow_inbound()
-    .port(22)
-    .from_ip(IPRange("10.0.0.0/24"))  # Management subnet
-    .to_zone("web-servers")
-    .description("SSH access from management")
-)
+For detailed YAML schema and reference, see the [Configuration Guide](CONFIGURATION_GUIDE.md).
 
-# Web traffic rules
-policy.add_rule(
-    FirewallRule()
-    .allow_inbound()
-    .ports([80, 443])
-    .from_any()
-    .to_zone("web-servers")
-    .description("HTTP/HTTPS access")
-)
+## Examples
 
-# Apply policy to Linux servers
-from audit_agent.devices import LinuxIptables
+The `examples/` directory contains sample policy and device configurations:
 
-devices = [
-    LinuxIptables("192.168.1.10", username="admin", password="secret"),
-    LinuxIptables("192.168.1.11", username="admin", private_key="/path/to/key")
-]
-
-# Audit current state
-audit_results = policy.audit(devices)
-print(f"Policy compliance: {audit_results.compliance_percentage}%")
-
-# Apply changes if needed
-if not audit_results.is_compliant:
-    policy.enforce(devices, dry_run=True)  # Simulate first
-    policy.enforce(devices)  # Apply changes
-```
+- **simple-linux-policy.yaml**: Minimal policy example
+- **devices.yaml**: Sample device inventory configuration
+- **web-server-policy.yaml**: End-to-end web server policy
+- See additional configurations in the [examples/](examples/) folder.
 
 ## Installation
 
@@ -78,6 +61,10 @@ audit_agent/
 ## Supported Devices
 
 - Linux servers with iptables firewall
+
+## Contributing
+
+Contributions, issues, and feature requests are welcome. Please open an issue or pull request on the [GitHub repository](https://github.com/xoity/AuditAgent).
 
 ## License
 
