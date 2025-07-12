@@ -31,7 +31,7 @@
 
 ## Getting Started
 
-Refer to the [Getting Started guide](GETTING_STARTED.md) for installation steps, example code, and CLI usage.
+Refer to the [Getting Started guide](docs/GETTING_STARTED.md) for installation steps, example code, and CLI usage.
 
 ## Automated Remediation
 
@@ -56,15 +56,15 @@ audit-agent auto-remediate --devices devices.yaml --policy policy.yaml --execute
 audit-agent auto-remediate --help
 ```
 
-For complete documentation, see [AUTOMATED_REMEDIATION.md](AUTOMATED_REMEDIATION.md).
+For complete documentation, see [Automated Remediation Guide](docs/AUTOMATED_REMEDIATION.md).
 
 ## Configuration Guide
 
-For detailed YAML schema and reference, see the [Configuration Guide](CONFIGURATION_GUIDE.md).
+For detailed YAML schema and reference, see the [Configuration Guide](docs/CONFIGURATION_GUIDE.md).
 
 ## Secure Authentication
 
-AuditAgent supports secure authentication without hardcoded credentials. See the [Secure Authentication Guide](SECURE_AUTHENTICATION.md) for:
+AuditAgent supports secure authentication without hardcoded credentials. See the [Secure Authentication Guide](docs/SECURE_AUTHENTICATION.md) for:
 
 - **SSH Agent Integration**: Use SSH agent for key management
 - **Dynamic Credential Prompting**: Prompt for passwords at runtime
