@@ -10,11 +10,11 @@ AuditAgent is a comprehensive Python framework for declaratively defining and en
 # Clone or navigate to the project directory
 cd AuditAgent
 
-# Install in development mode
-pip install -e .
+# Install all required dependencies
+pip install -r requirements.txt
 
-# Or install dependencies manually
-pip install paramiko netmiko requests pydantic rich typer pyyaml jinja2 cryptography
+# Or install in development mode (for contributors)
+pip install -e .
 ```
 
 ### 2. Basic Usage
