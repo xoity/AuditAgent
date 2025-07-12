@@ -6,6 +6,7 @@
 
 - [Features](#features)
 - [Getting Started](#getting-started)
+- [Automated Remediation](#automated-remediation)
 - [Configuration Guide](#configuration-guide)
 - [Secure Authentication](#secure-authentication)
 - [Examples](#examples)
@@ -20,6 +21,9 @@
 - **Declarative Policy Definition**: Define iptables policies using Python DSL
 - **Linux iptables Support**: Complete support for iptables firewall rules
 - **Policy Audit & Drift Detection**: Compare live iptables rules against declared policies
+- **Automated Remediation**: Intelligent automated fixing of detected policy violations
+- **Risk-Based Strategies**: Conservative, balanced, and aggressive remediation approaches
+- **Rollback Capabilities**: Automatic rollback on validation failures
 - **Idempotent Enforcement**: Apply changes only when needed
 - **Pre-flight Validation**: Simulate changes before applying them
 - **Secure Authentication**: Dynamic credential prompting and SSH agent integration
@@ -28,6 +32,31 @@
 ## Getting Started
 
 Refer to the [Getting Started guide](GETTING_STARTED.md) for installation steps, example code, and CLI usage.
+
+## Automated Remediation
+
+AuditAgent now supports intelligent automated remediation that can fix detected policy violations without manual intervention. This feature provides:
+
+- **Smart Decision Making**: Risk-based analysis of whether violations should be automatically fixed
+- **Multiple Strategies**: Choose from conservative, balanced, or aggressive remediation approaches
+- **Safety First**: Dry-run by default with explicit confirmation for risky changes
+- **Rollback Protection**: Automatic rollback if validation fails after remediation
+- **Comprehensive Reporting**: Detailed logs of all remediation actions taken
+
+### Quick Start
+
+```bash
+# Dry-run automated remediation (safe, shows what would be done)
+audit-agent auto-remediate --devices devices.yaml --policy policy.yaml
+
+# Execute remediation with conservative strategy
+audit-agent auto-remediate --devices devices.yaml --policy policy.yaml --execute --strategy conservative
+
+# View detailed help
+audit-agent auto-remediate --help
+```
+
+For complete documentation, see [AUTOMATED_REMEDIATION.md](AUTOMATED_REMEDIATION.md).
 
 ## Configuration Guide
 
@@ -61,6 +90,7 @@ The `examples/` directory contains sample policy and device configurations:
 - **devices.yaml**: Sample device inventory configuration
 - **devices-secure.yaml**: Secure device configuration without hardcoded credentials
 - **web-server-policy.yaml**: End-to-end web server policy
+- **automated_remediation_demo.py**: Demonstrates automated remediation features
 - See additional configurations in the [examples/](examples/) folder.
 
 ## Installation

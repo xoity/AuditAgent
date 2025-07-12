@@ -13,6 +13,11 @@ from ..core.logging_config import get_logger
 from ..core.policy import NetworkPolicy
 from ..core.rules import BaseRule, FirewallRule
 from ..devices.base import CommandResult, NetworkDevice
+from .remediation import (
+    AutomatedRemediationManager,
+    RemediationPlanResult,
+    RemediationStrategy,
+)
 
 logger = get_logger(__name__)
 
@@ -467,19 +472,88 @@ class EnforcementPlanner:
         return "medium"
 
 
-class EnforcementEngine:
-    """Main enforcement engine for applying policy changes."""
+class EnhancedEnforcementEngine:
+    """Enhanced enforcement engine with automated remediation capabilities."""
 
-    def __init__(self):
+    def __init__(
+        self, remediation_strategy: RemediationStrategy = RemediationStrategy.BALANCED
+    ):
         self.audit_engine = AuditEngine()
         self.planner = EnforcementPlanner()
         self.validator = PreflightValidator()
+        self.remediation_manager = AutomatedRemediationManager(remediation_strategy)
 
-    async def enforce_policy(
+    async def auto_enforce_policy(
+        self,
+        policy: NetworkPolicy,
+        devices: List[NetworkDevice],
+        dry_run: bool = False,
+        use_smart_remediation: bool = True,
+        stop_on_error: bool = True,
+    ) -> RemediationPlanResult:
+        """
+        Automatically enforce a policy using smart remediation.
+
+        This method combines audit and enforcement with intelligent remediation
+        that can automatically fix detected issues.
+        """
+        logger.info("Starting automated policy enforcement with smart remediation")
+
+        # First, audit the current state
+        logger.info("Performing initial audit...")
+        audit_result = await self.audit_engine.audit_policy(policy, devices)
+
+        if audit_result.is_compliant:
+            logger.info("All devices are already compliant. No remediation needed.")
+            # Return empty remediation result
+            from .remediation import RemediationPlan
+
+            empty_plan = RemediationPlan(
+                policy_name=policy.metadata.name,
+                device_count=len(devices),
+                total_actions=0,
+                strategy=self.remediation_manager.strategy,
+                actions=[],
+                execution_order=[],
+                estimated_total_time=0.0,
+                risk_assessment="none",
+                created_timestamp=datetime.datetime.now().isoformat(),
+            )
+
+            return RemediationPlanResult(
+                plan=empty_plan,
+                results=[],
+                overall_success_rate=100.0,
+                actions_completed=0,
+                actions_failed=0,
+                actions_skipped=0,
+                actions_rolled_back=0,
+                total_execution_time=0.0,
+                execution_timestamp=datetime.datetime.now().isoformat(),
+            )
+
+        if use_smart_remediation:
+            # Use smart automated remediation
+            logger.info(
+                f"Found {audit_result.total_issues} compliance issues. Starting automated remediation..."
+            )
+            return await self.remediation_manager.auto_remediate(
+                policy, audit_result, dry_run=dry_run, stop_on_error=stop_on_error
+            )
+        else:
+            # Fall back to traditional enforcement
+            logger.info("Using traditional enforcement approach...")
+            traditional_result = await self._traditional_enforce_policy(
+                policy, devices, dry_run
+            )
+
+            # Convert traditional result to remediation result format
+            return self._convert_traditional_to_remediation_result(traditional_result)
+
+    async def _traditional_enforce_policy(
         self, policy: NetworkPolicy, devices: List[NetworkDevice], dry_run: bool = False
     ) -> PolicyEnforcementResult:
-        """Enforce a policy on multiple devices."""
-
+        """Traditional enforcement method."""
         # First, audit the current state
         audit_result = await self.audit_engine.audit_policy(policy, devices)
 
@@ -512,7 +586,7 @@ class EnforcementEngine:
             device_key = str(device)
             dev_actions = device_actions.get(device_key, [])
 
-            device_result = await self.enforce_device(device, dev_actions, dry_run)
+            device_result = await self._enforce_device(device, dev_actions, dry_run)
             device_results.append(device_result)
 
             total_actions_executed += device_result.actions_executed
@@ -539,7 +613,7 @@ class EnforcementEngine:
             dry_run=dry_run,
         )
 
-    async def enforce_device(
+    async def _enforce_device(
         self,
         device: NetworkDevice,
         actions: List[EnforcementAction],
@@ -602,6 +676,95 @@ class EnforcementEngine:
             enforcement_timestamp=datetime.datetime.now().isoformat(),
         )
 
+    def _convert_traditional_to_remediation_result(
+        self, traditional_result: PolicyEnforcementResult
+    ) -> RemediationPlanResult:
+        """Convert traditional enforcement result to remediation result format."""
+        from .remediation import RemediationPlan, RemediationResult, RemediationStatus
+
+        # Create a dummy remediation plan
+        plan = RemediationPlan(
+            policy_name=traditional_result.policy_name,
+            device_count=traditional_result.devices_processed,
+            total_actions=traditional_result.total_actions_planned,
+            strategy=RemediationStrategy.BALANCED,
+            actions=[],
+            execution_order=[],
+            estimated_total_time=0.0,
+            risk_assessment="medium",
+            created_timestamp=traditional_result.enforcement_timestamp,
+        )
+
+        # Convert device results to remediation results
+        results = []
+        for i, device_result in enumerate(traditional_result.device_results):
+            result = RemediationResult(
+                action_id=f"traditional_action_{i}",
+                success=device_result.success_rate == 100.0,
+                status=RemediationStatus.COMPLETED
+                if device_result.success_rate == 100.0
+                else RemediationStatus.FAILED,
+                command_results=device_result.command_results,
+                validation_passed=device_result.success_rate == 100.0,
+                execution_time=sum(
+                    cmd.execution_time for cmd in device_result.command_results
+                ),
+                error_message=None
+                if device_result.success_rate == 100.0
+                else "Traditional enforcement failed",
+                rollback_performed=False,
+            )
+            results.append(result)
+
+        return RemediationPlanResult(
+            plan=plan,
+            results=results,
+            overall_success_rate=traditional_result.overall_success_rate,
+            actions_completed=traditional_result.total_actions_successful,
+            actions_failed=traditional_result.total_actions_failed,
+            actions_skipped=0,
+            actions_rolled_back=0,
+            total_execution_time=sum(
+                sum(cmd.execution_time for cmd in device_result.command_results)
+                for device_result in traditional_result.device_results
+            ),
+            execution_timestamp=traditional_result.enforcement_timestamp,
+        )
+
+    def generate_enhanced_enforcement_report(
+        self, result: RemediationPlanResult, format: str = "text"
+    ) -> str:
+        """Generate an enhanced enforcement report with remediation details."""
+        if format == "text":
+            return self.remediation_manager.generate_remediation_report(result, format)
+        elif format == "json":
+            return result.model_dump_json(indent=2)
+        else:
+            raise ValueError(f"Unsupported report format: {format}")
+
+
+class EnforcementEngine(EnhancedEnforcementEngine):
+    """Backward compatible enforcement engine that inherits enhanced capabilities."""
+
+    def __init__(self):
+        # Initialize with balanced remediation strategy by default
+        super().__init__(RemediationStrategy.BALANCED)
+
+    async def enforce_policy(
+        self, policy: NetworkPolicy, devices: List[NetworkDevice], dry_run: bool = False
+    ) -> PolicyEnforcementResult:
+        """Original enforce_policy method for backward compatibility."""
+        return await self._traditional_enforce_policy(policy, devices, dry_run)
+
+    async def enforce_device(
+        self,
+        device: NetworkDevice,
+        actions: List[EnforcementAction],
+        dry_run: bool = False,
+    ) -> DeviceEnforcementResult:
+        """Enforce actions on a single device."""
+        return await self._enforce_device(device, actions, dry_run)
+
     def generate_enforcement_report(
         self, enforcement_result: PolicyEnforcementResult, format: str = "text"
     ) -> str:
@@ -609,7 +772,7 @@ class EnforcementEngine:
         if format == "text":
             return self._generate_text_enforcement_report(enforcement_result)
         elif format == "json":
-            return enforcement_result.json(indent=2)
+            return enforcement_result.model_dump_json(indent=2)
         else:
             raise ValueError(f"Unsupported report format: {format}")
 

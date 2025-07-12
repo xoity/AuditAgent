@@ -18,6 +18,7 @@ from .core.policy import NetworkPolicy
 from .core.rules import FirewallRule
 from .devices.linux_iptables import LinuxIptables
 from .enforcement.engine import EnforcementEngine
+from .enforcement.remediation import RemediationStrategy
 
 console = Console()
 
@@ -88,6 +89,33 @@ def help_callback(ctx: typer.Context, param: typer.CallbackParam, value: bool):
     )
     console.print("")
 
+    # Auto-remediate command
+    console.print(
+        "[bold cyan]auto-remediate[/bold cyan] [italic]policy_file devices_file[/italic]"
+    )
+    console.print("  Automatically remediate compliance issues using smart enforcement")
+    console.print("  [bold]Arguments:[/bold]")
+    console.print("    policy_file    Path to policy file (YAML or JSON) [required]")
+    console.print("    devices_file   Path to devices configuration file [required]")
+    console.print("  [bold]Options:[/bold]")
+    console.print(
+        "    --strategy TEXT             Remediation strategy: conservative, balanced, aggressive [default: balanced]"
+    )
+    console.print(
+        "    --dry-run / --no-dry-run    Perform dry run without making changes [default: dry-run]"
+    )
+    console.print(
+        "    --stop-on-error / --no-stop-on-error    Stop execution on first error [default: stop-on-error]"
+    )
+    console.print(
+        "    --output-format TEXT        Output format: text, json [default: text]"
+    )
+    console.print("    --output-file PATH          Output file path")
+    console.print(
+        "    -v, --verbose               Increase verbosity (-v, -vv) [default: 0]"
+    )
+    console.print("")
+
     # Validate command
     console.print("[bold cyan]validate[/bold cyan] [italic]policy_file[/italic]")
     console.print("  Validate a network security policy for correctness")
@@ -143,6 +171,16 @@ def help_callback(ctx: typer.Context, param: typer.CallbackParam, value: bool):
     console.print("  [dim]# Enforce with actual changes[/dim]")
     console.print(
         "  python -m audit_agent.cli enforce --no-dry-run policy.yaml devices.yaml"
+    )
+    console.print("")
+    console.print("  [dim]# Automated remediation with conservative strategy[/dim]")
+    console.print(
+        "  python -m audit_agent.cli auto-remediate --strategy conservative policy.yaml devices.yaml"
+    )
+    console.print("")
+    console.print("  [dim]# Automated remediation with actual fixes[/dim]")
+    console.print(
+        "  python -m audit_agent.cli auto-remediate --no-dry-run policy.yaml devices.yaml"
     )
     console.print("")
     console.print("  [dim]# Validate policy file[/dim]")
@@ -340,6 +378,110 @@ def enforce(
 
     # Show summary
     display_enforcement_summary(result)
+
+
+@app.command()
+def auto_remediate(
+    file1: Path = typer.Argument(
+        ..., help="Path to policy or devices file (YAML or JSON)"
+    ),
+    file2: Path = typer.Argument(
+        ..., help="Path to devices or policy file (YAML or JSON)"
+    ),
+    strategy: str = typer.Option(
+        "balanced", help="Remediation strategy: conservative, balanced, aggressive"
+    ),
+    dry_run: bool = typer.Option(True, help="Perform dry run without making changes"),
+    stop_on_error: bool = typer.Option(True, help="Stop execution on first error"),
+    output_format: str = typer.Option("text", help="Output format: text, json"),
+    output_file: Optional[Path] = typer.Option(None, help="Output file path"),
+    verbose: int = typer.Option(
+        0, "-v", "--verbose", count=True, help="Increase verbosity (-v, -vv)"
+    ),
+):
+    """Automatically remediate compliance issues using smart enforcement."""
+
+    # Setup logging based on verbosity
+    from .core.logging_config import setup_logging
+
+    setup_logging(min(verbose, 2))
+
+    mode_text = "DRY RUN" if dry_run else "LIVE REMEDIATION"
+    console.print(
+        f"[bold green]Starting Automated Remediation ({mode_text})...[/bold green]"
+    )
+
+    if not dry_run:
+        confirm = typer.confirm(
+            "This will automatically fix compliance issues on your devices. Are you sure?"
+        )
+        if not confirm:
+            console.print("Automated remediation cancelled.")
+            logger.info("Automated remediation cancelled by user")
+            raise typer.Exit()
+
+    # Auto-detect file types
+    policy_file, devices_file = auto_detect_file_types(file1, file2)
+
+    # Load policy and devices
+    try:
+        policy = load_policy(policy_file)
+        devices = load_devices(devices_file)
+        console.print(f"✓ Loaded policy: {policy.metadata.name}")
+        console.print(f"✓ Loaded {len(devices)} devices")
+        logger.info(f"Loaded policy: {policy.metadata.name}")
+        logger.info(f"Loaded {len(devices)} devices")
+    except Exception as e:
+        console.print(f"[red]Error loading configuration: {e}[/red]")
+        logger.error(f"Error loading configuration: {e}")
+        raise typer.Exit(1)
+
+    # Validate strategy
+    try:
+        remediation_strategy = RemediationStrategy(strategy.lower())
+    except ValueError:
+        console.print(f"[red]Invalid strategy: {strategy}[/red]")
+        console.print("[red]Valid strategies: conservative, balanced, aggressive[/red]")
+        raise typer.Exit(1)
+
+    # Create enhanced enforcement engine with specified strategy
+    from .enforcement.engine import EnhancedEnforcementEngine
+
+    enforcement_engine = EnhancedEnforcementEngine(remediation_strategy)
+
+    console.print("Connecting to devices and analyzing compliance...")
+
+    try:
+        result = asyncio.run(
+            enforcement_engine.auto_enforce_policy(
+                policy,
+                devices,
+                dry_run=dry_run,
+                use_smart_remediation=True,
+                stop_on_error=stop_on_error,
+            )
+        )
+        console.print("✓ Automated remediation completed")
+        logger.info("Automated remediation completed successfully")
+    except Exception as e:
+        console.print(f"[red]Error during automated remediation: {e}[/red]")
+        logger.error(f"Error during automated remediation: {e}")
+        raise typer.Exit(1)
+
+    # Generate report
+    report = enforcement_engine.generate_enhanced_enforcement_report(
+        result, output_format
+    )
+
+    if output_file:
+        output_file.write_text(report)
+        console.print(f"✓ Report saved to {output_file}")
+        logger.info(f"Report saved to {output_file}")
+    else:
+        console.print(report)
+
+    # Show summary
+    display_remediation_summary(result)
 
 
 @app.command()
@@ -622,6 +764,42 @@ def display_enforcement_summary(result):
     table.add_row("Failed Actions", str(result.total_actions_failed))
 
     console.print(table)
+
+
+def display_remediation_summary(result):
+    """Display automated remediation results summary."""
+    console.print("\n[bold]Automated Remediation Summary[/bold]")
+
+    table = Table()
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="white")
+
+    table.add_row("Strategy", result.plan.strategy.value.title())
+    table.add_row("Mode", "DRY RUN" if getattr(result, "dry_run", False) else "LIVE")
+    table.add_row("Overall Success Rate", f"{result.overall_success_rate:.1f}%")
+    table.add_row("Total Actions", str(result.plan.total_actions))
+    table.add_row("Actions Completed", str(result.actions_completed))
+    table.add_row("Actions Failed", str(result.actions_failed))
+    table.add_row("Actions Skipped", str(result.actions_skipped))
+    table.add_row("Actions Rolled Back", str(result.actions_rolled_back))
+    table.add_row("Execution Time", f"{result.total_execution_time:.1f}s")
+    table.add_row("Risk Assessment", result.plan.risk_assessment.title())
+
+    console.print(table)
+
+    # Show status breakdown if there are any issues
+    if result.actions_failed > 0 or result.actions_rolled_back > 0:
+        console.print(
+            "\n[yellow]⚠️  Some actions were not successful. Check the detailed report for more information.[/yellow]"
+        )
+    elif result.actions_skipped > 0:
+        console.print(
+            "\n[blue]ℹ️  Some actions were skipped due to dependencies or strategy constraints.[/blue]"
+        )
+    else:
+        console.print(
+            "\n[green]✅ All remediation actions completed successfully![/green]"
+        )
 
 
 def display_policy_summary(policy: NetworkPolicy):
