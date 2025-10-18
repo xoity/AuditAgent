@@ -21,6 +21,21 @@ class CredentialManager:
     def __init__(self):
         self._credential_cache: Dict[str, Any] = {}
         self._ssh_agent_available = self._check_ssh_agent()
+        self._non_interactive = False
+        self._allow_ssh_agent = True
+
+    def set_non_interactive(self, non_interactive: bool):
+        """Set non-interactive mode (no prompts)."""
+        self._non_interactive = non_interactive
+        if non_interactive:
+            logger.info("Non-interactive mode enabled - all prompts will fail")
+
+    def set_allow_ssh_agent(self, allow: bool):
+        """Enable or disable SSH agent usage."""
+        self._allow_ssh_agent = allow
+        if not allow:
+            logger.info("SSH agent usage disabled")
+            self._ssh_agent_available = False
 
     def _check_ssh_agent(self) -> bool:
         """Check if SSH agent is available."""
@@ -67,6 +82,12 @@ class CredentialManager:
 
     def _prompt_for_ssh_password(self, username: str, host: str) -> Optional[str]:
         """Prompt user for SSH password."""
+        if self._non_interactive:
+            logger.error(
+                f"Cannot prompt for SSH password in non-interactive mode for {username}@{host}"
+            )
+            return None
+
         if not sys.stdin.isatty():
             logger.error("Cannot prompt for SSH password: not running in a terminal")
             return None
@@ -274,6 +295,12 @@ class CredentialManager:
         self, key_path: str, username: str, host: str
     ) -> Optional[str]:
         """Prompt user for private key passphrase."""
+        if self._non_interactive:
+            logger.error(
+                f"Cannot prompt for passphrase in non-interactive mode for {key_path}"
+            )
+            return None
+
         if not sys.stdin.isatty():
             logger.error("Cannot prompt for passphrase: not running in a terminal")
             return None
@@ -298,7 +325,7 @@ class CredentialManager:
 
     def is_ssh_agent_available(self) -> bool:
         """Check if SSH agent is available."""
-        return self._ssh_agent_available
+        return self._ssh_agent_available and self._allow_ssh_agent
 
 
 # Global credential manager instance

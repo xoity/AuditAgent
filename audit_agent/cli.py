@@ -4,6 +4,7 @@ Command-line interface for AuditAgent.
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import List, Optional
 
@@ -260,6 +261,14 @@ def audit(
     full_report: bool = typer.Option(
         False, "--full-report", help="Show detailed issues for all severity levels"
     ),
+    non_interactive: bool = typer.Option(
+        False,
+        "--non-interactive",
+        help="Non-interactive mode (no prompts, fail if credentials needed)",
+    ),
+    ssh_agent: bool = typer.Option(
+        True, "--ssh-agent/--no-ssh-agent", help="Enable or disable SSH agent usage"
+    ),
     verbose: int = typer.Option(
         0, "-v", "--verbose", count=True, help="Increase verbosity (-v, -vv)"
     ),
@@ -267,9 +276,16 @@ def audit(
     """Audit devices against a network security policy."""
 
     # Setup logging based on verbosity
+    from .core.credentials import credential_manager
     from .core.logging_config import setup_logging
 
     setup_logging(min(verbose, 2))
+
+    # Configure credential manager
+    credential_manager.set_non_interactive(
+        non_interactive or os.environ.get("AUDIT_AGENT_NONINTERACTIVE") == "1"
+    )
+    credential_manager.set_allow_ssh_agent(ssh_agent)
 
     console.print("[bold blue]Starting Policy Audit...[/bold blue]")
 
@@ -338,6 +354,16 @@ def enforce(
     verbose: int = typer.Option(
         0, "-v", "--verbose", count=True, help="Increase verbosity (-v, -vv)"
     ),
+    non_interactive: bool = typer.Option(
+        False,
+        "--non-interactive",
+        help="Fail instead of prompting for credentials (can also set AUDIT_AGENT_NONINTERACTIVE=1)",
+    ),
+    ssh_agent: Optional[bool] = typer.Option(
+        None,
+        "--ssh-agent/--no-ssh-agent",
+        help="Enable/disable SSH agent usage (default: auto-detect)",
+    ),
 ):
     """Enforce a network security policy on devices."""
 
@@ -345,6 +371,15 @@ def enforce(
     from .core.logging_config import setup_logging
 
     setup_logging(min(verbose, 2))
+
+    # Configure credential manager
+    from .core.credentials import credential_manager
+
+    if non_interactive or os.environ.get("AUDIT_AGENT_NONINTERACTIVE") == "1":
+        credential_manager.set_non_interactive(True)
+
+    if ssh_agent is not None:
+        credential_manager.set_allow_ssh_agent(ssh_agent)
 
     mode_text = "DRY RUN" if dry_run else "LIVE ENFORCEMENT"
     console.print(
@@ -422,6 +457,16 @@ def auto_remediate(
     verbose: int = typer.Option(
         0, "-v", "--verbose", count=True, help="Increase verbosity (-v, -vv)"
     ),
+    non_interactive: bool = typer.Option(
+        False,
+        "--non-interactive",
+        help="Fail instead of prompting for credentials (can also set AUDIT_AGENT_NONINTERACTIVE=1)",
+    ),
+    ssh_agent: Optional[bool] = typer.Option(
+        None,
+        "--ssh-agent/--no-ssh-agent",
+        help="Enable/disable SSH agent usage (default: auto-detect)",
+    ),
 ):
     """Automatically remediate compliance issues using smart enforcement."""
 
@@ -429,6 +474,15 @@ def auto_remediate(
     from .core.logging_config import setup_logging
 
     setup_logging(min(verbose, 2))
+
+    # Configure credential manager
+    from .core.credentials import credential_manager
+
+    if non_interactive or os.environ.get("AUDIT_AGENT_NONINTERACTIVE") == "1":
+        credential_manager.set_non_interactive(True)
+
+    if ssh_agent is not None:
+        credential_manager.set_allow_ssh_agent(ssh_agent)
 
     mode_text = "DRY RUN" if dry_run else "LIVE REMEDIATION"
     console.print(
@@ -558,6 +612,19 @@ def auto_generate(
         None,
         help="Output file for remediation policy (default: remediation-policy.yaml)",
     ),
+    include_commands: bool = typer.Option(
+        True,
+        "--include-commands/--no-include-commands",
+        help="Include suggested iptables commands in output",
+    ),
+    non_interactive: bool = typer.Option(
+        False,
+        "--non-interactive",
+        help="Non-interactive mode (no prompts, fail if credentials needed)",
+    ),
+    ssh_agent: bool = typer.Option(
+        True, "--ssh-agent/--no-ssh-agent", help="Enable or disable SSH agent usage"
+    ),
     verbose: int = typer.Option(
         0, "-v", "--verbose", count=True, help="Increase verbosity (-v, -vv)"
     ),
@@ -573,9 +640,16 @@ def auto_generate(
     """
 
     # Setup logging based on verbosity
+    from .core.credentials import credential_manager
     from .core.logging_config import setup_logging
 
     setup_logging(min(verbose, 2))
+
+    # Configure credential manager
+    credential_manager.set_non_interactive(
+        non_interactive or os.environ.get("AUDIT_AGENT_NONINTERACTIVE") == "1"
+    )
+    credential_manager.set_allow_ssh_agent(ssh_agent)
 
     console.print("[bold cyan]🔧 Auto-Generating Remediation Policy...[/bold cyan]\n")
 
@@ -715,19 +789,94 @@ def auto_generate(
         console.print(f"[red]Error saving remediation policy: {e}[/red]")
         raise typer.Exit(1)
 
+    # Generate suggested commands if requested
+    if include_commands and remediation_policy.firewall_rules:
+        commands_file = output_file.parent / f"{output_file.stem}-commands.sh"
+        console.print(
+            f"[bold]Step 4:[/bold] Generating suggested iptables commands to {commands_file}..."
+        )
+
+        try:
+            commands_content = ["#!/bin/bash"]
+            commands_content.append(
+                "# Generated iptables commands for remediation policy"
+            )
+            commands_content.append(f"# Policy: {remediation_policy.metadata.name}")
+            if remediation_policy.metadata.created_date:
+                commands_content.append(
+                    f"# Generated: {remediation_policy.metadata.created_date}"
+                )
+            commands_content.append("")
+            commands_content.append(
+                "# WARNING: Review these commands before executing!"
+            )
+            commands_content.append(
+                "# These are suggestions based on the remediation policy."
+            )
+            commands_content.append("")
+
+            # Group rules by device
+            device_rules = {}
+            for rule in remediation_policy.firewall_rules:
+                # For auto-generated policies, we can organize by rule characteristics
+                # In a real implementation, you'd track which device each rule applies to
+                device_key = "all-devices"
+                if device_key not in device_rules:
+                    device_rules[device_key] = []
+                device_rules[device_key].append(rule)
+
+            # Generate commands for each device
+            for device_name, rules in device_rules.items():
+                commands_content.append(f"# Commands for: {device_name}")
+                commands_content.append("")
+
+                for rule in rules:
+                    commands_content.append(f"# Rule: {rule.name}")
+                    if rule.description:
+                        commands_content.append(f"# Description: {rule.description}")
+
+                    # Generate iptables commands for this rule
+                    iptables_cmds = firewall_rule_to_iptables(rule)
+                    for cmd in iptables_cmds:
+                        commands_content.append(cmd)
+
+                    commands_content.append("")
+
+            # Add save command
+            commands_content.append("# Save iptables rules (optional)")
+            commands_content.append("# iptables-save > /etc/iptables/rules.v4")
+            commands_content.append("")
+
+            commands_file.write_text("\n".join(commands_content))
+            console.print(f"✓ Suggested commands saved to {commands_file}\n")
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not generate commands: {e}[/yellow]")
+
     # Show what to do next
     console.print("[bold green]✓ Auto-Generation Complete![/bold green]\n")
     console.print("[bold cyan]Next Steps:[/bold cyan]")
     console.print(f"  1. Review the remediation policy: {output_file}")
-    console.print("  2. Test with dry-run first:")
+    if include_commands:
+        console.print(
+            f"  2. Review suggested commands: {output_file.parent / f'{output_file.stem}-commands.sh'}"
+        )
+        console.print("  3. Test with dry-run first:")
+    else:
+        console.print("  2. Test with dry-run first:")
     console.print(
         f"     [dim]audit-agent enforce --dry-run {output_file} {devices_file}[/dim]"
     )
-    console.print("  3. Apply the fixes:")
+    if include_commands:
+        console.print("  4. Apply the fixes:")
+    else:
+        console.print("  3. Apply the fixes:")
     console.print(
         f"     [dim]audit-agent enforce --no-dry-run {output_file} {devices_file}[/dim]"
     )
-    console.print("  4. Or use auto-remediate:")
+    if include_commands:
+        console.print("  5. Or use auto-remediate:")
+    else:
+        console.print("  4. Or use auto-remediate:")
     console.print(
         f"     [dim]audit-agent auto-remediate {output_file} {devices_file}[/dim]\n"
     )
@@ -815,6 +964,169 @@ def create_example(
 
     # Show summary
     display_policy_summary(policy)
+
+
+def firewall_rule_to_iptables(rule: FirewallRule) -> List[str]:
+    """Convert a firewall rule to iptables command(s)."""
+    commands = []
+
+    # Determine chain based on direction
+    chain = "INPUT" if rule.direction.value == "inbound" else "OUTPUT"
+
+    # Determine action
+    action = "ACCEPT" if rule.action.value == "allow" else "DROP"
+
+    # Build base command
+    cmd_parts = ["iptables", "-A", chain]
+
+    # Protocol
+    if rule.protocol and rule.protocol.name != "any":
+        cmd_parts.extend(["-p", rule.protocol.name])
+
+    # Helper to get IP string (handles both IPAddress and IPRange)
+    def ip_to_str(ip):
+        if hasattr(ip, "cidr"):
+            return ip.cidr
+        elif hasattr(ip, "address"):
+            return ip.address
+        return str(ip)
+
+    # Source IPs
+    if rule.source_ips:
+        for source_ip in rule.source_ips:
+            cmd = cmd_parts.copy()
+            cmd.extend(["-s", ip_to_str(source_ip)])
+
+            # Destination IPs
+            if rule.destination_ips:
+                for dest_ip in rule.destination_ips:
+                    dest_cmd = cmd.copy()
+                    dest_cmd.extend(["-d", ip_to_str(dest_ip)])
+
+                    # Destination ports
+                    if rule.destination_ports:
+                        for port in rule.destination_ports:
+                            port_cmd = dest_cmd.copy()
+                            if port.number:
+                                port_cmd.extend(["--dport", str(port.number)])
+                            elif port.range_start and port.range_end:
+                                port_cmd.extend(
+                                    ["--dport", f"{port.range_start}:{port.range_end}"]
+                                )
+
+                            # Add logging if enabled
+                            if rule.log_traffic:
+                                log_cmd = port_cmd.copy()
+                                log_cmd[2] = "LOG"
+                                log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
+                                commands.append(" ".join(log_cmd))
+
+                            port_cmd.extend(["-j", action])
+                            commands.append(" ".join(port_cmd))
+                    else:
+                        # No ports specified
+                        if rule.log_traffic:
+                            log_cmd = dest_cmd.copy()
+                            log_cmd[2] = "LOG"
+                            log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
+                            commands.append(" ".join(log_cmd))
+
+                        dest_cmd.extend(["-j", action])
+                        commands.append(" ".join(dest_cmd))
+            else:
+                # No destination IPs, add rule for source only
+                if rule.destination_ports:
+                    for port in rule.destination_ports:
+                        port_cmd = cmd.copy()
+                        if port.number:
+                            port_cmd.extend(["--dport", str(port.number)])
+                        elif port.range_start and port.range_end:
+                            port_cmd.extend(
+                                ["--dport", f"{port.range_start}:{port.range_end}"]
+                            )
+
+                        if rule.log_traffic:
+                            log_cmd = port_cmd.copy()
+                            log_cmd[2] = "LOG"
+                            log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
+                            commands.append(" ".join(log_cmd))
+
+                        port_cmd.extend(["-j", action])
+                        commands.append(" ".join(port_cmd))
+                else:
+                    if rule.log_traffic:
+                        log_cmd = cmd.copy()
+                        log_cmd[2] = "LOG"
+                        log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
+                        commands.append(" ".join(log_cmd))
+
+                    cmd.extend(["-j", action])
+                    commands.append(" ".join(cmd))
+    else:
+        # No source IPs specified, create rule for any source
+        if rule.destination_ips:
+            for dest_ip in rule.destination_ips:
+                dest_cmd = cmd_parts.copy()
+                dest_cmd.extend(["-d", ip_to_str(dest_ip)])
+
+                if rule.destination_ports:
+                    for port in rule.destination_ports:
+                        port_cmd = dest_cmd.copy()
+                        if port.number:
+                            port_cmd.extend(["--dport", str(port.number)])
+                        elif port.range_start and port.range_end:
+                            port_cmd.extend(
+                                ["--dport", f"{port.range_start}:{port.range_end}"]
+                            )
+
+                        if rule.log_traffic:
+                            log_cmd = port_cmd.copy()
+                            log_cmd[2] = "LOG"
+                            log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
+                            commands.append(" ".join(log_cmd))
+
+                        port_cmd.extend(["-j", action])
+                        commands.append(" ".join(port_cmd))
+                else:
+                    if rule.log_traffic:
+                        log_cmd = dest_cmd.copy()
+                        log_cmd[2] = "LOG"
+                        log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
+                        commands.append(" ".join(log_cmd))
+
+                    dest_cmd.extend(["-j", action])
+                    commands.append(" ".join(dest_cmd))
+        else:
+            # Simple rule with no IPs
+            if rule.destination_ports:
+                for port in rule.destination_ports:
+                    port_cmd = cmd_parts.copy()
+                    if port.number:
+                        port_cmd.extend(["--dport", str(port.number)])
+                    elif port.range_start and port.range_end:
+                        port_cmd.extend(
+                            ["--dport", f"{port.range_start}:{port.range_end}"]
+                        )
+
+                    if rule.log_traffic:
+                        log_cmd = port_cmd.copy()
+                        log_cmd[2] = "LOG"
+                        log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
+                        commands.append(" ".join(log_cmd))
+
+                    port_cmd.extend(["-j", action])
+                    commands.append(" ".join(port_cmd))
+            else:
+                if rule.log_traffic:
+                    log_cmd = cmd_parts.copy()
+                    log_cmd[2] = "LOG"
+                    log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
+                    commands.append(" ".join(log_cmd))
+
+                cmd_parts.extend(["-j", action])
+                commands.append(" ".join(cmd_parts))
+
+    return commands if commands else [" ".join(cmd_parts + ["-j", action])]
 
 
 def load_policy(policy_file: Path) -> NetworkPolicy:
