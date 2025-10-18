@@ -241,18 +241,13 @@ class NetworkPolicy(BaseModel):
         """Export policy to YAML format."""
         import yaml
 
-        # Convert Pydantic model to dict with proper serialization
-        data = self.model_dump(mode="python")
+        # Convert Pydantic model to dict with JSON-serializable values
+        data = self.model_dump(mode="json")
 
-        # Custom representer for enum values
-        def represent_enum(dumper, data):
-            return dumper.represent_scalar("tag:yaml.org,2002:str", data.value)
-
-        yaml.add_representer(
-            object, lambda dumper, data: dumper.represent_str(str(data))
+        # Use safe dump to avoid Python-specific tags
+        return yaml.safe_dump(
+            data, default_flow_style=False, allow_unicode=True, sort_keys=False
         )
-
-        return yaml.dump(data, default_flow_style=False, allow_unicode=True)
 
     def export_to_json(self) -> str:
         """Export policy to JSON format."""

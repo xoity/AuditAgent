@@ -122,8 +122,12 @@ def help_callback(ctx: typer.Context, param: typer.CallbackParam, value: bool):
     )
     console.print("  Auto-generate remediation policy from audit results")
     console.print("  [bold]Arguments:[/bold]")
-    console.print("    file1    Path to policy or devices file (YAML or JSON) [required]")
-    console.print("    file2    Path to devices or policy file (YAML or JSON) [required]")
+    console.print(
+        "    file1    Path to policy or devices file (YAML or JSON) [required]"
+    )
+    console.print(
+        "    file2    Path to devices or policy file (YAML or JSON) [required]"
+    )
     console.print("  [bold]Options:[/bold]")
     console.print(
         "    --output-file PATH      Output file for remediation policy [default: remediation-policy.yaml]"
@@ -191,9 +195,7 @@ def help_callback(ctx: typer.Context, param: typer.CallbackParam, value: bool):
     )
     console.print("")
     console.print("  [dim]# Auto-generate remediation policy from audit results[/dim]")
-    console.print(
-        "  python -m audit_agent.cli auto-generate policy.yaml devices.yaml"
-    )
+    console.print("  python -m audit_agent.cli auto-generate policy.yaml devices.yaml")
     console.print("")
     console.print("  [dim]# Automated remediation with conservative strategy[/dim]")
     console.print(
@@ -553,7 +555,8 @@ def auto_generate(
         ..., help="Path to devices or policy file (YAML or JSON)"
     ),
     output_file: Path = typer.Option(
-        None, help="Output file for remediation policy (default: remediation-policy.yaml)"
+        None,
+        help="Output file for remediation policy (default: remediation-policy.yaml)",
     ),
     verbose: int = typer.Option(
         0, "-v", "--verbose", count=True, help="Increase verbosity (-v, -vv)"
@@ -561,7 +564,7 @@ def auto_generate(
 ):
     """
     Auto-generate remediation policy from audit results.
-    
+
     This command will:
     1. Audit your devices against the policy
     2. Identify missing/incorrect rules
@@ -614,21 +617,27 @@ def auto_generate(
 
     # Check if there are any issues
     if result.total_issues == 0:
-        console.print("[green]✓ No compliance issues found! Your devices are compliant.[/green]")
+        console.print(
+            "[green]✓ No compliance issues found! Your devices are compliant.[/green]"
+        )
         console.print("[green]  No remediation policy needed.[/green]")
         return
 
     console.print(f"[yellow]Found {result.total_issues} compliance issues[/yellow]")
     console.print(f"  • Critical: {len(result.get_critical_issues())}")
     console.print(f"  • High: {len(result.get_high_issues())}")
-    
+
     # Get medium and low issues manually
     all_issues = []
     for device_result in result.device_results:
         all_issues.extend(device_result.issues)
-    medium_issues = [i for i in all_issues if hasattr(i, 'severity') and i.severity == 'medium']
-    low_issues = [i for i in all_issues if hasattr(i, 'severity') and i.severity == 'low']
-    
+    medium_issues = [
+        i for i in all_issues if hasattr(i, "severity") and i.severity == "medium"
+    ]
+    low_issues = [
+        i for i in all_issues if hasattr(i, "severity") and i.severity == "low"
+    ]
+
     console.print(f"  • Medium: {len(medium_issues)}")
     console.print(f"  • Low: {len(low_issues)}\n")
 
@@ -636,7 +645,9 @@ def auto_generate(
     console.print("[bold]Step 2:[/bold] Generating remediation policy...")
 
     remediation_policy = NetworkPolicy(f"{policy.metadata.name}-remediation")
-    remediation_policy.metadata.description = f"Auto-generated remediation policy for {policy.metadata.name}"
+    remediation_policy.metadata.description = (
+        f"Auto-generated remediation policy for {policy.metadata.name}"
+    )
     remediation_policy.metadata.author = "AuditAgent Auto-Generate"
 
     # Track what we're adding
@@ -648,30 +659,39 @@ def auto_generate(
         if not device_result.issues:
             continue
 
-        device_name = str(device_result.device) if hasattr(device_result, 'device') else 'unknown'
+        device_name = (
+            str(device_result.device) if hasattr(device_result, "device") else "unknown"
+        )
         devices_covered.add(device_name)
 
         for issue in device_result.issues:
             # Check if this is a missing rule issue
-            if "missing from device" in issue.description.lower() or "required" in issue.description.lower():
+            if (
+                "missing from device" in issue.description.lower()
+                or "required" in issue.description.lower()
+            ):
                 # Extract rule name from issue description
                 # Format: "Required firewall rule 'rule-name' is missing from device"
                 import re
+
                 match = re.search(r"'([^']+)'", issue.description)
                 if match:
                     rule_name = match.group(1)
-                    
+
                     # Find the original rule in the policy
                     original_rule = None
                     for rule in policy.firewall_rules:
                         if rule.name == rule_name:
                             original_rule = rule
                             break
-                    
+
                     # Add the rule to remediation policy if found
                     if original_rule:
                         # Check if we already added this rule
-                        rule_exists = any(r.name == original_rule.name for r in remediation_policy.firewall_rules)
+                        rule_exists = any(
+                            r.name == original_rule.name
+                            for r in remediation_policy.firewall_rules
+                        )
                         if not rule_exists:
                             remediation_policy.add_firewall_rule(original_rule)
                             rules_added += 1
@@ -686,7 +706,7 @@ def auto_generate(
 
     # Save remediation policy
     console.print(f"[bold]Step 3:[/bold] Saving remediation policy to {output_file}...")
-    
+
     try:
         content = remediation_policy.export_to_yaml()
         output_file.write_text(content)
@@ -700,11 +720,17 @@ def auto_generate(
     console.print("[bold cyan]Next Steps:[/bold cyan]")
     console.print(f"  1. Review the remediation policy: {output_file}")
     console.print("  2. Test with dry-run first:")
-    console.print(f"     [dim]audit-agent enforce --dry-run {output_file} {devices_file}[/dim]")
+    console.print(
+        f"     [dim]audit-agent enforce --dry-run {output_file} {devices_file}[/dim]"
+    )
     console.print("  3. Apply the fixes:")
-    console.print(f"     [dim]audit-agent enforce --no-dry-run {output_file} {devices_file}[/dim]")
+    console.print(
+        f"     [dim]audit-agent enforce --no-dry-run {output_file} {devices_file}[/dim]"
+    )
     console.print("  4. Or use auto-remediate:")
-    console.print(f"     [dim]audit-agent auto-remediate {output_file} {devices_file}[/dim]\n")
+    console.print(
+        f"     [dim]audit-agent auto-remediate {output_file} {devices_file}[/dim]\n"
+    )
 
     # Show policy summary
     console.print("[bold]Remediation Policy Summary:[/bold]")
