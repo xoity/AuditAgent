@@ -116,6 +116,23 @@ def help_callback(ctx: typer.Context, param: typer.CallbackParam, value: bool):
     )
     console.print("")
 
+    # Auto-generate command
+    console.print(
+        "[bold cyan]auto-generate[/bold cyan] [italic]policy_file devices_file[/italic]"
+    )
+    console.print("  Auto-generate remediation policy from audit results")
+    console.print("  [bold]Arguments:[/bold]")
+    console.print("    file1    Path to policy or devices file (YAML or JSON) [required]")
+    console.print("    file2    Path to devices or policy file (YAML or JSON) [required]")
+    console.print("  [bold]Options:[/bold]")
+    console.print(
+        "    --output-file PATH      Output file for remediation policy [default: remediation-policy.yaml]"
+    )
+    console.print(
+        "    -v, --verbose           Increase verbosity (-v, -vv) [default: 0]"
+    )
+    console.print("")
+
     # Validate command
     console.print("[bold cyan]validate[/bold cyan] [italic]policy_file[/italic]")
     console.print("  Validate a network security policy for correctness")
@@ -171,6 +188,11 @@ def help_callback(ctx: typer.Context, param: typer.CallbackParam, value: bool):
     console.print("  [dim]# Enforce with actual changes[/dim]")
     console.print(
         "  python -m audit_agent.cli enforce --no-dry-run policy.yaml devices.yaml"
+    )
+    console.print("")
+    console.print("  [dim]# Auto-generate remediation policy from audit results[/dim]")
+    console.print(
+        "  python -m audit_agent.cli auto-generate policy.yaml devices.yaml"
     )
     console.print("")
     console.print("  [dim]# Automated remediation with conservative strategy[/dim]")
@@ -520,6 +542,173 @@ def validate(
     except Exception as e:
         console.print(f"[red]Error validating policy: {e}[/red]")
         raise typer.Exit(1)
+
+
+@app.command()
+def auto_generate(
+    file1: Path = typer.Argument(
+        ..., help="Path to policy or devices file (YAML or JSON)"
+    ),
+    file2: Path = typer.Argument(
+        ..., help="Path to devices or policy file (YAML or JSON)"
+    ),
+    output_file: Path = typer.Option(
+        None, help="Output file for remediation policy (default: remediation-policy.yaml)"
+    ),
+    verbose: int = typer.Option(
+        0, "-v", "--verbose", count=True, help="Increase verbosity (-v, -vv)"
+    ),
+):
+    """
+    Auto-generate remediation policy from audit results.
+    
+    This command will:
+    1. Audit your devices against the policy
+    2. Identify missing/incorrect rules
+    3. Generate a remediation policy with fixes
+    4. Save it to a file you can review and enforce
+    """
+
+    # Setup logging based on verbosity
+    from .core.logging_config import setup_logging
+
+    setup_logging(min(verbose, 2))
+
+    console.print("[bold cyan]🔧 Auto-Generating Remediation Policy...[/bold cyan]\n")
+
+    # Auto-detect file types
+    policy_file, devices_file = auto_detect_file_types(file1, file2)
+
+    # Load policy
+    try:
+        policy = load_policy(policy_file)
+        console.print(f"✓ Loaded policy: {policy.metadata.name}")
+        logger.info(f"Loaded policy: {policy.metadata.name}")
+    except Exception as e:
+        console.print(f"[red]Error loading policy: {e}[/red]")
+        logger.error(f"Error loading policy: {e}")
+        raise typer.Exit(1)
+
+    # Load devices
+    try:
+        devices = load_devices(devices_file)
+        console.print(f"✓ Loaded {len(devices)} devices")
+        logger.info(f"Loaded {len(devices)} devices")
+    except Exception as e:
+        console.print(f"[red]Error loading devices: {e}[/red]")
+        logger.error(f"Error loading devices: {e}")
+        raise typer.Exit(1)
+
+    # Run audit
+    audit_engine = AuditEngine()
+    console.print("\n[bold]Step 1:[/bold] Auditing devices...")
+
+    try:
+        result = asyncio.run(audit_engine.audit_policy(policy, devices))
+        console.print("✓ Audit completed\n")
+        logger.info("Audit completed successfully")
+    except Exception as e:
+        console.print(f"[red]Error during audit: {e}[/red]")
+        logger.error(f"Error during audit: {e}")
+        raise typer.Exit(1)
+
+    # Check if there are any issues
+    if result.total_issues == 0:
+        console.print("[green]✓ No compliance issues found! Your devices are compliant.[/green]")
+        console.print("[green]  No remediation policy needed.[/green]")
+        return
+
+    console.print(f"[yellow]Found {result.total_issues} compliance issues[/yellow]")
+    console.print(f"  • Critical: {len(result.get_critical_issues())}")
+    console.print(f"  • High: {len(result.get_high_issues())}")
+    
+    # Get medium and low issues manually
+    all_issues = []
+    for device_result in result.device_results:
+        all_issues.extend(device_result.issues)
+    medium_issues = [i for i in all_issues if hasattr(i, 'severity') and i.severity == 'medium']
+    low_issues = [i for i in all_issues if hasattr(i, 'severity') and i.severity == 'low']
+    
+    console.print(f"  • Medium: {len(medium_issues)}")
+    console.print(f"  • Low: {len(low_issues)}\n")
+
+    # Generate remediation policy
+    console.print("[bold]Step 2:[/bold] Generating remediation policy...")
+
+    remediation_policy = NetworkPolicy(f"{policy.metadata.name}-remediation")
+    remediation_policy.metadata.description = f"Auto-generated remediation policy for {policy.metadata.name}"
+    remediation_policy.metadata.author = "AuditAgent Auto-Generate"
+
+    # Track what we're adding
+    rules_added = 0
+    devices_covered = set()
+
+    # Process each device's issues
+    for device_result in result.device_results:
+        if not device_result.issues:
+            continue
+
+        device_name = str(device_result.device) if hasattr(device_result, 'device') else 'unknown'
+        devices_covered.add(device_name)
+
+        for issue in device_result.issues:
+            # Check if this is a missing rule issue
+            if "missing from device" in issue.description.lower() or "required" in issue.description.lower():
+                # Extract rule name from issue description
+                # Format: "Required firewall rule 'rule-name' is missing from device"
+                import re
+                match = re.search(r"'([^']+)'", issue.description)
+                if match:
+                    rule_name = match.group(1)
+                    
+                    # Find the original rule in the policy
+                    original_rule = None
+                    for rule in policy.firewall_rules:
+                        if rule.name == rule_name:
+                            original_rule = rule
+                            break
+                    
+                    # Add the rule to remediation policy if found
+                    if original_rule:
+                        # Check if we already added this rule
+                        rule_exists = any(r.name == original_rule.name for r in remediation_policy.firewall_rules)
+                        if not rule_exists:
+                            remediation_policy.add_firewall_rule(original_rule)
+                            rules_added += 1
+                            console.print(f"  ✓ Added rule: {original_rule.name}")
+
+    console.print(f"\n✓ Generated remediation policy with {rules_added} rules")
+    console.print(f"  Covers {len(devices_covered)} device(s)\n")
+
+    # Determine output file
+    if not output_file:
+        output_file = Path("remediation-policy.yaml")
+
+    # Save remediation policy
+    console.print(f"[bold]Step 3:[/bold] Saving remediation policy to {output_file}...")
+    
+    try:
+        content = remediation_policy.export_to_yaml()
+        output_file.write_text(content)
+        console.print("✓ Remediation policy saved\n")
+    except Exception as e:
+        console.print(f"[red]Error saving remediation policy: {e}[/red]")
+        raise typer.Exit(1)
+
+    # Show what to do next
+    console.print("[bold green]✓ Auto-Generation Complete![/bold green]\n")
+    console.print("[bold cyan]Next Steps:[/bold cyan]")
+    console.print(f"  1. Review the remediation policy: {output_file}")
+    console.print("  2. Test with dry-run first:")
+    console.print(f"     [dim]audit-agent enforce --dry-run {output_file} {devices_file}[/dim]")
+    console.print("  3. Apply the fixes:")
+    console.print(f"     [dim]audit-agent enforce --no-dry-run {output_file} {devices_file}[/dim]")
+    console.print("  4. Or use auto-remediate:")
+    console.print(f"     [dim]audit-agent auto-remediate {output_file} {devices_file}[/dim]\n")
+
+    # Show policy summary
+    console.print("[bold]Remediation Policy Summary:[/bold]")
+    display_policy_summary(remediation_policy)
 
 
 @app.command()

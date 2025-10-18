@@ -64,7 +64,7 @@ class LinuxIptables(FirewallDevice):
                 "username": self.connection.credentials.username,
                 "timeout": self.connection.timeout,
                 "look_for_keys": True,  # Let paramiko try keys in ~/.ssh/
-                "allow_agent": True,    # Let paramiko use SSH agent
+                "allow_agent": True,  # Let paramiko use SSH agent
             }
 
             # Try private key authentication first if specified
@@ -102,7 +102,9 @@ class LinuxIptables(FirewallDevice):
                         # Create fresh SSH client for next attempt
                         self._ssh_client.close()
                         self._ssh_client = paramiko.SSHClient()
-                        self._ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                        self._ssh_client.set_missing_host_key_policy(
+                            paramiko.AutoAddPolicy()
+                        )
                 else:
                     logger.warning(
                         f"Could not load private key: {self.connection.credentials.private_key}"
@@ -111,8 +113,12 @@ class LinuxIptables(FirewallDevice):
             # Try password authentication if provided
             if self.connection.credentials.password:
                 connect_kwargs["password"] = self.connection.credentials.password
-                connect_kwargs["look_for_keys"] = False  # Don't look for keys when password provided
-                connect_kwargs["allow_agent"] = False    # Don't use agent when password provided
+                connect_kwargs["look_for_keys"] = (
+                    False  # Don't look for keys when password provided
+                )
+                connect_kwargs["allow_agent"] = (
+                    False  # Don't use agent when password provided
+                )
                 logger.debug("Using provided password for authentication")
 
                 try:
@@ -146,7 +152,7 @@ class LinuxIptables(FirewallDevice):
                     "look_for_keys": True,
                     "allow_agent": True,
                 }
-                
+
                 self._ssh_client.connect(**connect_kwargs)
 
                 # Test connection
@@ -163,7 +169,7 @@ class LinuxIptables(FirewallDevice):
 
             except Exception as e:
                 logger.debug(f"Default SSH authentication failed: {e}")
-                
+
                 # Last resort: prompt for password
                 password = credential_manager.get_ssh_password(
                     self.connection.credentials.username, self.connection.host
@@ -174,8 +180,10 @@ class LinuxIptables(FirewallDevice):
                         # Create fresh SSH client
                         self._ssh_client.close()
                         self._ssh_client = paramiko.SSHClient()
-                        self._ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                        
+                        self._ssh_client.set_missing_host_key_policy(
+                            paramiko.AutoAddPolicy()
+                        )
+
                         connect_kwargs = {
                             "hostname": self.connection.host,
                             "port": self.connection.port or 22,
@@ -185,11 +193,13 @@ class LinuxIptables(FirewallDevice):
                             "look_for_keys": False,
                             "allow_agent": False,
                         }
-                        
+
                         self._ssh_client.connect(**connect_kwargs)
 
                         # Test connection
-                        stdin, stdout, stderr = self._ssh_client.exec_command("echo 'test'")
+                        stdin, stdout, stderr = self._ssh_client.exec_command(
+                            "echo 'test'"
+                        )
                         stdout.read()
 
                         self._connected = True
@@ -201,7 +211,9 @@ class LinuxIptables(FirewallDevice):
                         return True
 
                     except Exception as pwd_error:
-                        logger.error(f"Prompted password authentication failed: {pwd_error}")
+                        logger.error(
+                            f"Prompted password authentication failed: {pwd_error}"
+                        )
                         return False
                 else:
                     logger.error("No authentication method available")
