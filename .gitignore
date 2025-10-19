@@ -179,3 +179,14 @@ pyrightconfig.json
 
 test_reports/
 .vscode/settings.json
+
+# mise
+.mise.local.toml
+.mise/
+
+# Coverage HTML reports
+htmlcov/
+
+# Build artifacts
+*.whl
+*.tar.gz

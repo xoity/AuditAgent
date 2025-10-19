@@ -1,0 +1,104 @@
+[tools]
+python = "3.13"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+PYTHON_VERSION = "3.13"
+
+# Main workflow task
+[tasks.all]
+run = ["mise run install", "mise run lint", "mise run test"]
+description = "Run full setup: install, lint, and test"
+
+# Installation tasks
+[tasks.install]
+run = ["pip install -e ."]
+description = "Install AuditAgent in development mode"
+
+[tasks.install_deps]
+run = ["pip install -r requirements.txt"]
+description = "Install dependencies only"
+
+[tasks.install_dev]
+run = ["pip install -e '.[dev]'"]
+description = "Install with development dependencies"
+
+[tasks.clean]
+run = ["rm -rf .venv/", "rm -rf build/", "rm -rf dist/", "rm -rf *.egg-info", "rm -rf .pytest_cache/", "rm -rf .ruff_cache/", "find . -type d -name __pycache__ -exec rm -rf {} +"]
+description = "Remove virtual environment and build artifacts"
+
+# Code quality tasks
+[tasks.format]
+run = ["ruff format ."]
+description = "Format code with ruff"
+
+[tasks.format_check]
+run = ["ruff format --check ."]
+description = "Check code formatting with ruff"
+
+[tasks.lint]
+run = ["ruff check ."]
+description = "Lint code with ruff"
+
+[tasks.lint_fix]
+run = ["ruff check --fix ."]
+description = "Lint and auto-fix issues with ruff"
+
+[tasks.typecheck]
+run = ["mypy audit_agent/"]
+description = "Run type checking with mypy"
+
+[tasks.check]
+run = ["mise run format_check", "mise run lint"]
+description = "Run all code quality checks"
+
+# Testing tasks
+[tasks.test]
+run = ["pytest tests/ -v"]
+description = "Run all tests with verbose output"
+
+[tasks.test_quick]
+run = ["pytest tests/ -q"]
+description = "Run all tests with minimal output"
+
+[tasks.test_coverage]
+run = ["pytest tests/ --cov=audit_agent --cov-report=term-missing --cov-report=html"]
+description = "Run tests with coverage report"
+
+[tasks.test_unit]
+run = ["pytest tests/ -m unit -v"]
+description = "Run only unit tests"
+
+[tasks.test_integration]
+run = ["pytest tests/ -m integration -v"]
+description = "Run only integration tests"
+
+[tasks.test_file]
+run = "pytest {{option(name='file')}} -v"
+description = "Run specific test file (requires file arg)"
+
+# Development tasks
+[tasks.shell]
+run = ["python"]
+description = "Open Python shell with AuditAgent available"
+
+[tasks.audit]
+run = "audit-agent audit {{option(name='policy')}} {{option(name='devices')}}"
+description = "Run audit command (requires policy and devices args)"
+
+[tasks.enforce]
+run = "audit-agent enforce {{option(name='policy')}} {{option(name='devices')}}"
+description = "Run enforce command (requires policy and devices args)"
+
+[tasks.example]
+run = ["python examples/linux_example.py"]
+description = "Run Linux iptables example"
+
+# Utilities
+[tasks.build]
+run = ["python -m build"]
+description = "Build distribution packages"
+
+[tasks.version]
+run = ["python -c \"from audit_agent import __version__; print(__version__)\""]
+description = "Show AuditAgent version"

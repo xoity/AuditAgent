@@ -1,0 +1,88 @@
+# Ruff configuration for AuditAgent
+# https://docs.astral.sh/ruff/
+
+# Exclude common directories
+exclude = [
+    ".venv",
+    "env",
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "*.egg-info",
+    ".pytest_cache",
+    ".ruff_cache",
+]
+
+# Set line length to match Black's default
+line-length = 88
+
+# Target Python 3.8+
+target-version = "py38"
+
+[lint]
+# Enable specific rule sets
+# F = Pyflakes (errors)
+# E/W = pycodestyle (errors and warnings)
+# I = isort (import sorting)
+# N = pep8-naming
+# UP = pyupgrade (upgrade syntax for newer Python)
+# S = flake8-bandit (security)
+# B = flake8-bugbear (likely bugs and design problems)
+# A = flake8-builtins (check for python builtins being used as variables)
+# C4 = flake8-comprehensions
+# T20 = flake8-print (disallow print statements)
+# ERA = eradicate (commented-out code)
+select = [
+    "F",      # Pyflakes
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "S",      # bandit (security)
+    "B",      # bugbear
+    "A",      # builtins
+    "C4",     # comprehensions
+    "ERA",    # eradicate
+]
+
+# Ignore specific rules
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "S101",   # Use of assert detected (needed for tests)
+    "S311",   # Standard pseudo-random generators are not suitable for security/cryptographic purposes
+]
+
+# Allow autofix for specific rules
+fixable = ["ALL"]
+unfixable = []
+
+[lint.per-file-ignores]
+# Test files can use assert and have longer lines
+"tests/**/*.py" = ["S101", "S106", "S108"]
+# Examples can have print statements
+"examples/**/*.py" = ["T20"]
+# CLI can have print statements
+"audit_agent/cli.py" = ["T201"]
+
+[lint.isort]
+# Use single line imports for better git diffs
+force-single-line = false
+# Organize imports similar to Black
+combine-as-imports = true
+known-first-party = ["audit_agent"]
+
+[lint.mccabe]
+# Max complexity
+max-complexity = 10
+
+[format]
+# Use double quotes for strings
+quote-style = "double"
+# Use spaces for indentation
+indent-style = "space"
+# Respect magic trailing comma
+skip-magic-trailing-comma = false
+# Format docstrings
+docstring-code-format = true

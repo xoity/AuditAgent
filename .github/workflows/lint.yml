@@ -1,0 +1,32 @@
+name: Lint and Format Check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: jdx/mise-action@v2
+        with:
+          cache: true
+          experimental: true
+      
+      - name: Install dependencies
+        run: mise run install_dev
+      
+      - name: Check code formatting
+        run: mise run format_check
+      
+      - name: Run ruff linter
+        run: mise run lint
+      
+      - name: Run type checking (optional, may fail)
+        run: mise run typecheck || true
+        continue-on-error: true
