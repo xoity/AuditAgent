@@ -54,9 +54,9 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/audit-agent"
-Repository = "https://github.com/yourusername/audit-agent"
-Documentation = "https://audit-agent.readthedocs.io"
+Homepage = "https://github.com/xoity/AuditAgent"
+Repository = "https://github.com/xoity/AuditAgent"
+Documentation = "https://github.com/xoity/AuditAgent"
 
 [project.scripts]
 audit-agent = "audit_agent.cli:main"
