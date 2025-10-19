@@ -1,0 +1,186 @@
+metadata:
+  name: simple-linux-policy-remediation
+  version: '1.0'
+  description: Auto-generated remediation policy for simple-linux-policy
+  author: AuditAgent Auto-Generate
+  created_date: null
+  last_modified: null
+  tags: []
+zones: {}
+firewall_rules:
+- id: null
+  name: allow-ssh
+  description: Allow SSH access on port 22
+  enabled: true
+  priority: 10
+  tags: []
+  action: allow
+  direction: inbound
+  protocol:
+    name: tcp
+    number: 6
+  source_ips:
+  - cidr: 0.0.0.0/0
+  destination_ips:
+  - cidr: 192.168.0.111/32
+  source_ports: []
+  destination_ports:
+  - number: 22
+    range_start: null
+    range_end: null
+    name: null
+  source_zones: []
+  destination_zones: []
+  services: []
+  log_traffic: false
+- id: null
+  name: allow-http
+  description: Allow HTTP access on port 80
+  enabled: true
+  priority: 20
+  tags: []
+  action: allow
+  direction: inbound
+  protocol:
+    name: tcp
+    number: 6
+  source_ips:
+  - cidr: 0.0.0.0/0
+  destination_ips:
+  - cidr: 192.168.0.111/32
+  source_ports: []
+  destination_ports:
+  - number: 80
+    range_start: null
+    range_end: null
+    name: null
+  source_zones: []
+  destination_zones: []
+  services: []
+  log_traffic: false
+- id: null
+  name: allow-https
+  description: Allow HTTPS access on port 443
+  enabled: true
+  priority: 30
+  tags: []
+  action: allow
+  direction: inbound
+  protocol:
+    name: tcp
+    number: 6
+  source_ips:
+  - cidr: 0.0.0.0/0
+  destination_ips:
+  - cidr: 192.168.0.111/32
+  source_ports: []
+  destination_ports:
+  - number: 443
+    range_start: null
+    range_end: null
+    name: null
+  source_zones: []
+  destination_zones: []
+  services: []
+  log_traffic: false
+- id: null
+  name: allow-dns
+  description: Allow DNS queries on port 53
+  enabled: true
+  priority: 40
+  tags: []
+  action: allow
+  direction: outbound
+  protocol:
+    name: udp
+    number: 17
+  source_ips:
+  - cidr: 192.168.0.111/32
+  destination_ips:
+  - cidr: 8.8.8.8/32
+  - cidr: 8.8.4.4/32
+  source_ports: []
+  destination_ports:
+  - number: 53
+    range_start: null
+    range_end: null
+    name: null
+  source_zones: []
+  destination_zones: []
+  services: []
+  log_traffic: true
+- id: null
+  name: block-rdp
+  description: Block Remote Desktop Protocol access
+  enabled: true
+  priority: 50
+  tags: []
+  action: deny
+  direction: inbound
+  protocol:
+    name: tcp
+    number: 6
+  source_ips:
+  - cidr: 0.0.0.0/0
+  destination_ips:
+  - cidr: 192.168.0.0/24
+  source_ports: []
+  destination_ports:
+  - number: 3389
+    range_start: null
+    range_end: null
+    name: null
+  source_zones: []
+  destination_zones: []
+  services: []
+  log_traffic: true
+- id: null
+  name: block-telnet
+  description: Block insecure telnet access
+  enabled: true
+  priority: 60
+  tags: []
+  action: deny
+  direction: inbound
+  protocol:
+    name: tcp
+    number: 6
+  source_ips:
+  - cidr: 0.0.0.0/0
+  destination_ips:
+  - cidr: 192.168.0.0/24
+  source_ports: []
+  destination_ports:
+  - number: 23
+    range_start: null
+    range_end: null
+    name: null
+  source_zones: []
+  destination_zones: []
+  services: []
+  log_traffic: true
+- id: null
+  name: allow-icmp
+  description: Allow ICMP for diagnostic purposes
+  enabled: true
+  priority: 70
+  tags: []
+  action: allow
+  direction: inbound
+  protocol:
+    name: icmp
+    number: 1
+  source_ips:
+  - cidr: 192.168.0.0/24
+  destination_ips:
+  - cidr: 192.168.0.111/32
+  source_ports: []
+  destination_ports: []
+  source_zones: []
+  destination_zones: []
+  services: []
+  log_traffic: false
+nat_rules: []
+vpn_rules: []
+qos_rules: []
+global_settings: {}

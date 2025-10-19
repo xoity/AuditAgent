@@ -52,6 +52,11 @@ ignore = [
     "E501",   # Line too long (handled by formatter)
     "S101",   # Use of assert detected (needed for tests)
     "S311",   # Standard pseudo-random generators are not suitable for security/cryptographic purposes
+    "B008",   # Do not perform function calls in argument defaults (common pattern in Typer CLI apps)
+    "A002",   # Argument shadowing a built-in (format is common parameter name)
+    "N805",   # First argument should be named self (cls is correct for Pydantic validators)
+    "ERA001", # Commented-out code (useful for examples and documentation)
+    "B904",   # raise ... from err (simplicity over explicit chaining for CLI tool)
 ]
 
 # Allow autofix for specific rules
@@ -60,11 +65,19 @@ unfixable = []
 
 [lint.per-file-ignores]
 # Test files can use assert and have longer lines
-"tests/**/*.py" = ["S101", "S106", "S108"]
-# Examples can have print statements
-"examples/**/*.py" = ["T20"]
+"tests/**/*.py" = ["S101", "S106", "S108", "S105", "F841"]
+# Examples can have print statements and hard-coded passwords for demonstration
+"examples/**/*.py" = ["T20", "S106"]
 # CLI can have print statements
 "audit_agent/cli.py" = ["T201"]
+# Credentials module needs AutoAddPolicy for SSH key testing
+"audit_agent/core/credentials.py" = ["S507"]
+# Base device module - exception handling patterns are intentional
+"audit_agent/devices/base.py" = ["S110"]
+# Linux iptables - exception handling patterns are intentional
+"audit_agent/devices/linux_iptables.py" = ["S110"]
+# Enforcement engine - unused variables in comprehensions are expected
+"audit_agent/enforcement/engine.py" = ["B007"]
 
 [lint.isort]
 # Use single line imports for better git diffs

@@ -10,7 +10,8 @@ This script shows how to:
 """
 
 import asyncio
-from audit_agent import NetworkPolicy, FirewallRule
+
+from audit_agent import FirewallRule, NetworkPolicy
 
 
 async def main():

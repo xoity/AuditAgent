@@ -13,7 +13,8 @@ Usage:
 """
 
 import asyncio
-from audit_agent import NetworkPolicy, FirewallRule, LinuxIptables
+
+from audit_agent import FirewallRule, LinuxIptables, NetworkPolicy
 
 
 async def main():

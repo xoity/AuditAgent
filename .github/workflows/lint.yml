@@ -13,20 +13,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: jdx/mise-action@v2
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          cache: true
-          experimental: true
+          python-version: "3.13"
       
       - name: Install dependencies
-        run: mise run install_dev
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
       
       - name: Check code formatting
-        run: mise run format_check
+        run: ruff format --check .
       
       - name: Run ruff linter
-        run: mise run lint
+        run: ruff check .
       
       - name: Run type checking (optional, may fail)
-        run: mise run typecheck || true
+        run: mypy audit_agent/ || true
         continue-on-error: true

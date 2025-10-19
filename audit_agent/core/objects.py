@@ -2,10 +2,11 @@
 Core network objects for representing IPs, ports, zones, and other network entities.
 """
 
-from typing import Union, List, Optional, ClassVar
-from ipaddress import IPv4Network, IPv4Address, AddressValueError
-from pydantic import BaseModel, validator
 import re
+from ipaddress import AddressValueError, IPv4Address, IPv4Network
+from typing import ClassVar, List, Optional, Union
+
+from pydantic import BaseModel, validator
 
 
 class IPAddress(BaseModel):

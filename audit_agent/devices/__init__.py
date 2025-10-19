@@ -2,7 +2,7 @@
 Device implementations for Linux servers with iptables.
 """
 
-from .base import NetworkDevice, FirewallDevice, DeviceManager
+from .base import DeviceManager, FirewallDevice, NetworkDevice
 from .linux_iptables import LinuxIptables
 
 __all__ = [

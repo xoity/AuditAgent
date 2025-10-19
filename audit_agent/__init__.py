@@ -9,12 +9,12 @@ __version__ = "0.1.0"
 __author__ = "Your Name"
 __email__ = "your.email@example.com"
 
+from .audit.engine import AuditEngine
+from .core.objects import IPAddress, IPRange, Port, Zone
 from .core.policy import NetworkPolicy
 from .core.rules import FirewallRule, NATRule, VPNRule
-from .core.objects import IPRange, IPAddress, Port, Zone
-from .audit.engine import AuditEngine
-from .enforcement.engine import EnforcementEngine
 from .devices.linux_iptables import LinuxIptables
+from .enforcement.engine import EnforcementEngine
 
 __all__ = [
     "NetworkPolicy",

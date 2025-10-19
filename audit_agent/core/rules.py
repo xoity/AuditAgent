@@ -2,10 +2,12 @@
 Core rule definitions for network security policies.
 """
 
-from typing import List, Optional, Union
 from enum import Enum
+from typing import List, Optional, Union
+
 from pydantic import BaseModel
-from .objects import IPAddress, IPRange, Port, Zone, Protocol, Service
+
+from .objects import IPAddress, IPRange, Port, Protocol, Service, Zone
 
 
 class Action(str, Enum):

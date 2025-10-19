@@ -86,12 +86,21 @@ select = [
 ignore = [
     "E501",   # Line too long (handled by formatter)
     "S101",   # Use of assert detected (needed for tests)
+    "B008",   # Do not perform function calls in argument defaults (common in Typer)
+    "A002",   # Argument shadowing a built-in
+    "N805",   # First argument should be named self (cls is correct for validators)
+    "ERA001", # Commented-out code
+    "B904",   # raise ... from err
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "S106", "S108"]
-"examples/**/*.py" = ["T20"]
+"tests/**/*.py" = ["S101", "S106", "S108", "S105", "F841"]
+"examples/**/*.py" = ["T20", "S106"]
 "audit_agent/cli.py" = ["T201"]
+"audit_agent/core/credentials.py" = ["S507"]
+"audit_agent/devices/base.py" = ["S110"]
+"audit_agent/devices/linux_iptables.py" = ["S110"]
+"audit_agent/enforcement/engine.py" = ["B007"]
 
 [tool.black]
 line-length = 88

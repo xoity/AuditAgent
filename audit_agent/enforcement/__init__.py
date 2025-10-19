@@ -3,10 +3,10 @@ Enforcement module for policy enforcement.
 """
 
 from .engine import (
-    EnforcementEngine,
-    PolicyEnforcementResult,
     DeviceEnforcementResult,
     EnforcementAction,
+    EnforcementEngine,
+    PolicyEnforcementResult,
 )
 
 __all__ = [
