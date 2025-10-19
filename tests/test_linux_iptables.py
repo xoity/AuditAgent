@@ -22,14 +22,12 @@ class TestLinuxIptables:
             host="192.168.1.10",
             username="admin",
             password="secret",
-            sudo_password="sudo_secret",
             port=22,
         )
 
         assert device.connection.host == "192.168.1.10"
         assert device.connection.credentials.username == "admin"
         assert device.connection.credentials.password == "secret"
-        assert device.sudo_password == "sudo_secret"
         assert device.connection.port == 22
         assert device.connection.credentials.private_key is None
 
@@ -39,14 +37,12 @@ class TestLinuxIptables:
             host="192.168.1.10",
             username="admin",
             private_key="/path/to/key",
-            sudo_password=None,
         )
 
         assert device.connection.host == "192.168.1.10"
         assert device.connection.credentials.username == "admin"
         assert device.connection.credentials.password is None
         assert device.connection.credentials.private_key == "/path/to/key"
-        assert device.sudo_password is None
 
     def test_str_representation(self):
         """Test string representation of device."""
@@ -82,15 +78,15 @@ class TestLinuxIptables:
         mock_client.set_missing_host_key_policy.assert_called_once()
         mock_client.connect.assert_called_once()
 
+    @patch("audit_agent.devices.linux_iptables.credential_manager.load_private_key")
     @patch("paramiko.SSHClient")
-    @patch("paramiko.RSAKey.from_private_key_file")
-    def test_connect_with_private_key(self, mock_rsa_key, mock_ssh_client):
+    def test_connect_with_private_key(self, mock_ssh_client, mock_load_key):
         """Test connecting with private key authentication."""
         # Setup mocks
         mock_client = Mock()
         mock_ssh_client.return_value = mock_client
         mock_key = Mock()
-        mock_rsa_key.return_value = mock_key
+        mock_load_key.return_value = mock_key
 
         # Mock successful command execution for connection test
         mock_client.exec_command.return_value = self._create_mock_command_result(
@@ -107,8 +103,10 @@ class TestLinuxIptables:
         result = loop.run_until_complete(device.connect())
         loop.close()
 
-        # Verify key loading
-        mock_rsa_key.assert_called_once_with("/path/to/key")
+        # Verify key loading through credential_manager
+        mock_load_key.assert_called_once_with(
+            "/path/to/key", "admin", "192.168.1.10"
+        )
 
         # Verify connection
         assert result is True
