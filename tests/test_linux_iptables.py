@@ -104,9 +104,7 @@ class TestLinuxIptables:
         loop.close()
 
         # Verify key loading through credential_manager
-        mock_load_key.assert_called_once_with(
-            "/path/to/key", "admin", "192.168.1.10"
-        )
+        mock_load_key.assert_called_once_with("/path/to/key", "admin", "192.168.1.10")
 
         # Verify connection
         assert result is True

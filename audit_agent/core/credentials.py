@@ -202,7 +202,6 @@ class CredentialManager:
                 paramiko.RSAKey,
                 paramiko.Ed25519Key,
                 paramiko.ECDSAKey,
-                paramiko.DSSKey,
             ]:
                 try:
                     if passphrase:
@@ -265,7 +264,6 @@ class CredentialManager:
                 paramiko.RSAKey,
                 paramiko.Ed25519Key,
                 paramiko.ECDSAKey,
-                paramiko.DSSKey,
             ]:
                 try:
                     key_class.from_private_key_file(key_path)
