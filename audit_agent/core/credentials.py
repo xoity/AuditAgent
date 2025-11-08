@@ -47,10 +47,10 @@ class CredentialManager:
 
             agent = paramiko.Agent()
             keys = agent.get_keys()
-            logger.debug(f"SSH agent has {len(keys)} keys available")
+            logger.debug("SSH agent has %s keys available", len(keys))
             return len(keys) > 0
         except Exception as e:
-            logger.debug(f"SSH agent check failed: {e}")
+            logger.debug("SSH agent check failed: %s", e)
             return False
 
     def get_ssh_password(self, username: str, host: str) -> Optional[str]:
@@ -84,7 +84,9 @@ class CredentialManager:
         """Prompt user for SSH password."""
         if self._non_interactive:
             logger.error(
-                f"Cannot prompt for SSH password in non-interactive mode for {username}@{host}"
+                "Cannot prompt for SSH password in non-interactive mode for %s@%s",
+                username,
+                host,
             )
             return None
 
@@ -102,7 +104,7 @@ class CredentialManager:
             logger.info("SSH password prompt cancelled by user")
             return None
         except Exception as e:
-            logger.error(f"Error prompting for SSH password: {e}")
+            logger.error("Error prompting for SSH password: %s", e)
             return None
 
     def try_ssh_agent_keys(
@@ -133,7 +135,7 @@ class CredentialManager:
                 return None
 
             logger.debug(
-                f"Testing {len(agent_keys)} SSH agent keys for {username}@{host}"
+                "Testing %s SSH agent keys for %s@%s", len(agent_keys), username, host
             )
 
             for i, key in enumerate(agent_keys):
@@ -153,23 +155,26 @@ class CredentialManager:
                     )
 
                     logger.debug(
-                        f"SSH agent key #{i + 1} authentication successful for {username}@{host}"
+                        "SSH agent key #%s authentication successful for %s@%s",
+                        i + 1,
+                        username,
+                        host,
                     )
                     client.close()
                     return key
 
                 except paramiko.AuthenticationException:
-                    logger.debug(f"SSH agent key #{i + 1} authentication failed")
+                    logger.debug("SSH agent key #%s authentication failed", i + 1)
                     continue
                 except Exception as e:
-                    logger.debug(f"SSH agent key #{i + 1} test failed: {e}")
+                    logger.debug("SSH agent key #%s test failed: %s", i + 1, e)
                     continue
 
-            logger.debug(f"All SSH agent keys failed for {username}@{host}")
+            logger.debug("All SSH agent keys failed for %s@%s", username, host)
             return None
 
         except Exception as e:
-            logger.debug(f"SSH agent authentication failed: {e}")
+            logger.debug("SSH agent authentication failed: %s", e)
             return None
 
     def load_private_key(
@@ -191,7 +196,7 @@ class CredentialManager:
             key_path = os.path.expanduser(key_path)
 
             if not os.path.exists(key_path):
-                logger.error(f"Private key not found: {key_path}")
+                logger.error("Private key not found: %s", key_path)
                 return None
 
             # Get passphrase if needed
@@ -212,7 +217,7 @@ class CredentialManager:
                         key = key_class.from_private_key_file(key_path)
 
                     logger.debug(
-                        f"Successfully loaded {key_class.__name__} from {key_path}"
+                        "Successfully loaded %s from %s", key_class.__name__, key_path
                     )
                     return key
 
@@ -220,20 +225,20 @@ class CredentialManager:
                     # Try next key type if no passphrase provided
                     if not passphrase:
                         continue
-                    logger.error(f"Invalid passphrase for {key_path}")
+                    logger.error("Invalid passphrase for %s", key_path)
                     return None
                 except paramiko.SSHException:
                     # Try next key type
                     continue
                 except Exception as e:
-                    logger.debug(f"Failed to load key as {key_class.__name__}: {e}")
+                    logger.debug("Failed to load key as %s: %s", key_class.__name__, e)
                     continue
 
-            logger.error(f"Unable to load private key from {key_path}")
+            logger.error("Unable to load private key from %s", key_path)
             return None
 
         except Exception as e:
-            logger.error(f"Error loading private key {key_path}: {e}")
+            logger.error("Error loading private key %s: %s", key_path, e)
             return None
 
     def get_private_key_passphrase(
@@ -267,7 +272,7 @@ class CredentialManager:
             ]:
                 try:
                     key_class.from_private_key_file(key_path)
-                    logger.debug(f"Key {key_path} loaded without passphrase")
+                    logger.debug("Key %s loaded without passphrase", key_path)
                     return None
                 except paramiko.PasswordRequiredException:
                     # Key requires passphrase
@@ -286,7 +291,7 @@ class CredentialManager:
             return passphrase
 
         except Exception as e:
-            logger.error(f"Error checking key {key_path}: {e}")
+            logger.error("Error checking key %s: %s", key_path, e)
             return None
 
     def _prompt_for_passphrase(
@@ -295,7 +300,7 @@ class CredentialManager:
         """Prompt user for private key passphrase."""
         if self._non_interactive:
             logger.error(
-                f"Cannot prompt for passphrase in non-interactive mode for {key_path}"
+                "Cannot prompt for passphrase in non-interactive mode for %s", key_path
             )
             return None
 
@@ -313,7 +318,7 @@ class CredentialManager:
             logger.info("Passphrase prompt cancelled by user")
             return None
         except Exception as e:
-            logger.error(f"Error prompting for passphrase: {e}")
+            logger.error("Error prompting for passphrase: %s", e)
             return None
 
     def clear_cache(self):

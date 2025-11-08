@@ -21,6 +21,7 @@
 - **Declarative Policy Definition**: Define iptables policies using Python DSL
 - **Linux iptables Support**: Complete support for iptables firewall rules
 - **Policy Audit & Drift Detection**: Compare live iptables rules against declared policies
+- **🤖 AI-Powered Remediation**: Automatically generate remediation policies using Google AI or OpenAI
 - **Automated Remediation**: Intelligent automated fixing of detected policy violations
 - **Risk-Based Strategies**: Conservative, balanced, and aggressive remediation approaches
 - **Rollback Capabilities**: Automatic rollback on validation failures
@@ -32,6 +33,28 @@
 ## Getting Started
 
 Refer to the [Getting Started guide](docs/GETTING_STARTED.md) for installation steps, example code, and CLI usage.
+
+## AI-Powered Remediation 🤖
+
+AuditAgent now includes AI-powered automatic remediation that uses advanced language models to analyze compliance issues and generate corrected policies:
+
+```bash
+# Set your Google AI Studio API key (free tier available)
+export GOOGLE_AI_API_KEY="your-key-here"
+
+# Generate and apply AI-powered remediation
+audit-agent ai-remediate policy.yaml devices.yaml --apply
+```
+
+**Features:**
+- 🎯 Achieves 100% compliance automatically
+- 🔄 Iterative refinement for optimal results
+- 📊 Detailed analysis and summary reports
+- 🌐 Supports Google AI Studio (Gemini), OpenAI, Azure OpenAI
+- 🔒 Secure local API key management
+- 🚀 Designed for future web-based management
+
+For complete documentation, see [AI Remediation Guide](docs/AI_REMEDIATION.md).
 
 ## Automated Remediation
 
@@ -95,8 +118,24 @@ The `examples/` directory contains sample policy and device configurations:
 
 ## Installation
 
+### Standard Installation
+
 ```bash
-pip install -e .
+pip install audit-agent
+```
+
+### With AI Support
+
+```bash
+pip install audit-agent[ai]
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/xoity/AuditAgent
+cd AuditAgent
+pip install -e ".[ai]"
 ```
 
 ## Project Structure

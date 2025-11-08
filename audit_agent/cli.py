@@ -23,6 +23,14 @@ from .enforcement.remediation import RemediationStrategy
 
 console = Console()
 
+# Import AI modules (optional dependency)
+try:
+    from .ai import AIConfig, AIProvider, AIRemediationEngine
+
+    AI_AVAILABLE = True
+except ImportError:
+    AI_AVAILABLE = False
+
 
 def version_callback(value: bool):
     if value:
@@ -296,20 +304,20 @@ def audit(
     try:
         policy = load_policy(policy_file)
         console.print(f"✓ Loaded policy: {policy.metadata.name}")
-        logger.info(f"Loaded policy: {policy.metadata.name}")
+        logger.info("Loaded policy: %s", policy.metadata.name)
     except Exception as e:
         console.print(f"[red]Error loading policy: {e}[/red]")
-        logger.error(f"Error loading policy: {e}")
+        logger.error("Error loading policy: %s", e)
         raise typer.Exit(1)
 
     # Load devices
     try:
         devices = load_devices(devices_file)
         console.print(f"✓ Loaded {len(devices)} devices")
-        logger.info(f"Loaded {len(devices)} devices")
+        logger.info("Loaded %s devices", len(devices))
     except Exception as e:
         console.print(f"[red]Error loading devices: {e}[/red]")
-        logger.error(f"Error loading devices: {e}")
+        logger.error("Error loading devices: %s", e)
         raise typer.Exit(1)
 
     # Run audit
@@ -323,7 +331,7 @@ def audit(
         logger.info("Audit completed successfully")
     except Exception as e:
         console.print(f"[red]Error during audit: {e}[/red]")
-        logger.error(f"Error during audit: {e}")
+        logger.error("Error during audit: %s", e)
         raise typer.Exit(1)
 
     # Generate report
@@ -332,7 +340,7 @@ def audit(
     if output_file:
         output_file.write_text(report)
         console.print(f"✓ Report saved to {output_file}")
-        logger.info(f"Report saved to {output_file}")
+        logger.info("Report saved to %s", output_file)
     else:
         console.print(report)
 
@@ -402,11 +410,11 @@ def enforce(
         devices = load_devices(devices_file)
         console.print(f"✓ Loaded policy: {policy.metadata.name}")
         console.print(f"✓ Loaded {len(devices)} devices")
-        logger.info(f"Loaded policy: {policy.metadata.name}")
-        logger.info(f"Loaded {len(devices)} devices")
+        logger.info("Loaded policy: %s", policy.metadata.name)
+        logger.info("Loaded %s devices", len(devices))
     except Exception as e:
         console.print(f"[red]Error loading configuration: {e}[/red]")
-        logger.error(f"Error loading configuration: {e}")
+        logger.error("Error loading configuration: %s", e)
         raise typer.Exit(1)
 
     # Run enforcement
@@ -422,7 +430,7 @@ def enforce(
         logger.info("Enforcement completed successfully")
     except Exception as e:
         console.print(f"[red]Error during enforcement: {e}[/red]")
-        logger.error(f"Error during enforcement: {e}")
+        logger.error("Error during enforcement: %s", e)
         raise typer.Exit(1)
 
     # Generate report
@@ -431,7 +439,7 @@ def enforce(
     if output_file:
         output_file.write_text(report)
         console.print(f"✓ Report saved to {output_file}")
-        logger.info(f"Report saved to {output_file}")
+        logger.info("Report saved to %s", output_file)
     else:
         console.print(report)
 
@@ -507,11 +515,11 @@ def auto_remediate(
         devices = load_devices(devices_file)
         console.print(f"✓ Loaded policy: {policy.metadata.name}")
         console.print(f"✓ Loaded {len(devices)} devices")
-        logger.info(f"Loaded policy: {policy.metadata.name}")
-        logger.info(f"Loaded {len(devices)} devices")
+        logger.info("Loaded policy: %s", policy.metadata.name)
+        logger.info("Loaded %s devices", len(devices))
     except Exception as e:
         console.print(f"[red]Error loading configuration: {e}[/red]")
-        logger.error(f"Error loading configuration: {e}")
+        logger.error("Error loading configuration: %s", e)
         raise typer.Exit(1)
 
     # Validate strategy
@@ -543,7 +551,7 @@ def auto_remediate(
         logger.info("Automated remediation completed successfully")
     except Exception as e:
         console.print(f"[red]Error during automated remediation: {e}[/red]")
-        logger.error(f"Error during automated remediation: {e}")
+        logger.error("Error during automated remediation: %s", e)
         raise typer.Exit(1)
 
     # Generate report
@@ -554,7 +562,7 @@ def auto_remediate(
     if output_file:
         output_file.write_text(report)
         console.print(f"✓ Report saved to {output_file}")
-        logger.info(f"Report saved to {output_file}")
+        logger.info("Report saved to %s", output_file)
     else:
         console.print(report)
 
@@ -660,20 +668,20 @@ def auto_generate(
     try:
         policy = load_policy(policy_file)
         console.print(f"✓ Loaded policy: {policy.metadata.name}")
-        logger.info(f"Loaded policy: {policy.metadata.name}")
+        logger.info("Loaded policy: %s", policy.metadata.name)
     except Exception as e:
         console.print(f"[red]Error loading policy: {e}[/red]")
-        logger.error(f"Error loading policy: {e}")
+        logger.error("Error loading policy: %s", e)
         raise typer.Exit(1)
 
     # Load devices
     try:
         devices = load_devices(devices_file)
         console.print(f"✓ Loaded {len(devices)} devices")
-        logger.info(f"Loaded {len(devices)} devices")
+        logger.info("Loaded %s devices", len(devices))
     except Exception as e:
         console.print(f"[red]Error loading devices: {e}[/red]")
-        logger.error(f"Error loading devices: {e}")
+        logger.error("Error loading devices: %s", e)
         raise typer.Exit(1)
 
     # Run audit
@@ -686,7 +694,7 @@ def auto_generate(
         logger.info("Audit completed successfully")
     except Exception as e:
         console.print(f"[red]Error during audit: {e}[/red]")
-        logger.error(f"Error during audit: {e}")
+        logger.error("Error during audit: %s", e)
         raise typer.Exit(1)
 
     # Check if there are any issues
@@ -797,23 +805,23 @@ def auto_generate(
         )
 
         try:
-            commands_content = ["#!/bin/bash"]
-            commands_content.append(
-                "# Generated iptables commands for remediation policy"
-            )
-            commands_content.append(f"# Policy: {remediation_policy.metadata.name}")
+            commands_content = [
+                "#!/bin/bash",
+                "# Generated iptables commands for remediation policy",
+                f"# Policy: {remediation_policy.metadata.name}",
+            ]
             if remediation_policy.metadata.created_date:
                 commands_content.append(
                     f"# Generated: {remediation_policy.metadata.created_date}"
                 )
-            commands_content.append("")
-            commands_content.append(
-                "# WARNING: Review these commands before executing!"
+            commands_content.extend(
+                [
+                    "",
+                    "# WARNING: Review these commands before executing!",
+                    "# These are suggestions based on the remediation policy.",
+                    "",
+                ]
             )
-            commands_content.append(
-                "# These are suggestions based on the remediation policy."
-            )
-            commands_content.append("")
 
             # Group rules by device
             device_rules = {}
@@ -964,6 +972,233 @@ def create_example(
 
     # Show summary
     display_policy_summary(policy)
+
+
+@app.command(name="ai-remediate")
+def ai_remediate(
+    policy_file: Path = typer.Argument(..., help="Path to policy file (YAML or JSON)"),
+    devices_file: Path = typer.Argument(..., help="Path to devices configuration file"),
+    output_file: Path = typer.Option(
+        None, "--output", "-o", help="Output file path for remediation policy"
+    ),
+    provider: str = typer.Option(
+        None, "--provider", "-p", help="AI provider: google, openai, azure_openai"
+    ),
+    apply: bool = typer.Option(
+        False, "--apply", help="Apply the remediation policy after generation"
+    ),
+    max_iterations: int = typer.Option(
+        2, "--max-iterations", help="Maximum AI refinement iterations"
+    ),
+    verbose: int = typer.Option(
+        0, "-v", "--verbose", count=True, help="Increase verbosity (-v, -vv)"
+    ),
+):
+    """
+    AI-powered automatic remediation using Google AI Studio or OpenAI.
+
+    This command:
+    1. Audits devices against the policy
+    2. Uses AI to analyze compliance issues
+    3. Generates a remediation policy to achieve 100% compliance
+    4. Optionally applies the remediation policy
+
+    Setup:
+    - Google AI Studio: Set GOOGLE_AI_API_KEY environment variable
+    - OpenAI: Set OPENAI_API_KEY environment variable
+    - Or configure in ~/.audit-agent/config.yaml
+    """
+    if not AI_AVAILABLE:
+        console.print(
+            "[red]✗ AI integration not available. Install with: pip install google-generativeai openai[/red]"
+        )
+        raise typer.Exit(1)
+
+    # Configure logging
+    if verbose == 1:
+        os.environ["LOG_LEVEL"] = "INFO"
+    elif verbose >= 2:
+        os.environ["LOG_LEVEL"] = "DEBUG"
+
+    from .core.logging_config import get_logger
+
+    logger = get_logger(__name__)
+
+    console.print("[bold blue]AI-Powered Remediation[/bold blue]\n")
+
+    # Load configuration
+    try:
+        ai_config = AIConfig.load_from_file()
+    except Exception as e:
+        console.print(f"[red]✗ Failed to load AI config: {e}[/red]")
+        console.print(
+            "\n[yellow]Set GOOGLE_AI_API_KEY or OPENAI_API_KEY environment variable[/yellow]"
+        )
+        console.print(
+            "[yellow]Or create ~/.audit-agent/config.yaml with your API keys[/yellow]"
+        )
+        raise typer.Exit(1)
+
+    # Validate provider configuration
+    try:
+        selected_provider = None
+        if provider:
+            selected_provider = AIProvider(provider.lower())
+        ai_config.get_provider_config(selected_provider)
+    except ValueError as e:
+        console.print(f"[red]✗ {e}[/red]")
+        console.print("\n[yellow]Available providers:[/yellow]")
+        console.print("  • google (Google AI Studio / Gemini)")
+        console.print("  • openai (OpenAI GPT)")
+        console.print("  • azure_openai (Azure OpenAI)")
+        raise typer.Exit(1)
+
+    # Load policy and devices
+    console.print(f"Loading policy from {policy_file}...")
+    policy = load_policy(policy_file)
+
+    console.print(f"Loading devices from {devices_file}...")
+    devices = load_devices(devices_file)
+
+    if not devices:
+        console.print("[red]✗ No devices found in devices file[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"✓ Loaded {len(devices)} device(s)\n")
+
+    # Step 1: Initial Audit
+    console.print("[bold]Step 1: Running initial audit...[/bold]")
+    audit_engine = AuditEngine()
+    original_result = asyncio.run(audit_engine.audit_policy(policy, devices))
+
+    console.print(f"  Compliance: {original_result.overall_compliance_percentage:.1f}%")
+    console.print(f"  Total Issues: {original_result.total_issues}")
+
+    if original_result.is_compliant:
+        console.print("\n[green]✓ Policy is already 100% compliant![/green]")
+        raise typer.Exit(0)
+
+    # Show issues by severity
+    console.print("\n  Issues by severity:")
+    for severity in ["critical", "high", "medium", "low"]:
+        issues = original_result.get_issues_by_severity(severity)
+        if issues:
+            console.print(f"    • {severity.upper()}: {len(issues)}")
+
+    # Step 2: AI Analysis and Generation
+    console.print("\n[bold]Step 2: Generating AI remediation policy...[/bold]")
+    ai_engine = AIRemediationEngine(ai_config)
+
+    try:
+        remediation_yaml, final_result = ai_engine.generate_and_validate(
+            audit_result=original_result,
+            original_policy=policy,
+            devices=devices,
+            provider=selected_provider,
+            max_iterations=max_iterations,
+        )
+
+        # Check if policy is already correct (all issues are missing_rule)
+        all_missing = all(
+            issue.issue_type == "missing_rule"
+            for device_result in original_result.device_results
+            for issue in device_result.issues
+        )
+
+        if all_missing and original_result.total_issues > 0:
+            console.print(
+                "[yellow]ℹ  Policy is already correct - all issues are missing rules on the device.[/yellow]"
+            )
+            console.print(
+                "[yellow]   The remediation output is the original policy.[/yellow]"
+            )
+            console.print(
+                "[yellow]   Run with --apply to ENFORCE these rules on the device.[/yellow]"
+            )
+
+    except Exception as e:
+        console.print(f"\n[red]✗ AI remediation failed: {e}[/red]")
+        logger.exception("AI remediation error")
+        raise typer.Exit(1)
+
+    # Step 3: Display Results
+    console.print("\n[bold]Step 3: Remediation Results[/bold]")
+    console.print(
+        f"  Final Compliance: {final_result.overall_compliance_percentage:.1f}%"
+    )
+    console.print(f"  Remaining Issues: {final_result.total_issues}")
+
+    compliance_improvement = (
+        final_result.overall_compliance_percentage
+        - original_result.overall_compliance_percentage
+    )
+    issues_fixed = original_result.total_issues - final_result.total_issues
+
+    console.print("\n  [bold]Improvement:[/bold]")
+    console.print(f"    • Compliance: {compliance_improvement:+.1f}%")
+    console.print(f"    • Issues Fixed: {issues_fixed}")
+
+    if final_result.is_compliant:
+        console.print("\n[green]✓ Successfully achieved 100% compliance![/green]")
+    else:
+        console.print("\n[yellow]⚠ Partial remediation - some issues remain[/yellow]")
+
+    # Save remediation policy
+    if output_file is None:
+        output_file = (
+            policy_file.parent
+            / f"{policy_file.stem}-ai-remediation{policy_file.suffix}"
+        )
+
+    ai_engine.save_remediation_policy(remediation_yaml, output_file)
+    console.print(f"\n[green]✓ Remediation policy saved to: {output_file}[/green]")
+
+    # Generate summary report
+    summary = ai_engine.generate_summary_report(original_result, final_result)
+    summary_file = output_file.parent / f"{output_file.stem}-summary.md"
+    summary_file.write_text(summary)
+    console.print(f"[green]✓ Summary report saved to: {summary_file}[/green]")
+
+    # Step 4: Apply if requested
+    if apply:
+        console.print("\n[bold]Step 4: Applying remediation policy...[/bold]")
+
+        # Load the remediation policy
+        remediation_policy = NetworkPolicy.from_yaml(remediation_yaml)
+
+        # Apply enforcement
+        enforcement_engine = EnforcementEngine()
+        enforcement_result = asyncio.run(
+            enforcement_engine.enforce_policy(
+                remediation_policy, devices, dry_run=False
+            )
+        )
+
+        # Display enforcement results
+        console.print(
+            f"\n  Actions Executed: {enforcement_result.total_actions_executed}"
+        )
+        console.print(f"  Successful: {enforcement_result.total_actions_successful}")
+        console.print(f"  Failed: {enforcement_result.total_actions_failed}")
+
+        if enforcement_result.is_successful:
+            console.print("\n[green]✓ Remediation applied successfully![/green]")
+        else:
+            console.print(
+                "\n[yellow]⚠ Some enforcement actions failed. Check logs for details.[/yellow]"
+            )
+    else:
+        console.print("\n[bold]Next Steps:[/bold]")
+        console.print(f"  1. Review the remediation policy: {output_file}")
+        console.print(f"  2. Review the summary report: {summary_file}")
+        console.print("  3. Apply the remediation:")
+        console.print(
+            f"     [dim]audit-agent ai-remediate {policy_file} {devices_file} --apply[/dim]"
+        )
+        console.print("     or")
+        console.print(
+            f"     [dim]audit-agent enforce --no-dry-run {output_file} {devices_file}[/dim]"
+        )
 
 
 def firewall_rule_to_iptables(rule: FirewallRule) -> List[str]:
@@ -1143,7 +1378,7 @@ def load_policy(policy_file: Path) -> NetworkPolicy:
 
 def auto_detect_file_types(file1: Path, file2: Path) -> tuple[Path, Path]:
     """Auto-detect which file is policy and which is devices based on content."""
-    logger.debug(f"Auto-detecting file types for: {file1} and {file2}")
+    logger.debug("Auto-detecting file types for: %s and %s", file1, file2)
 
     def is_policy_file(file_path: Path) -> bool:
         """Check if a file contains policy content."""
@@ -1187,10 +1422,10 @@ def auto_detect_file_types(file1: Path, file2: Path) -> tuple[Path, Path]:
 
     # Determine which is which
     if is_policy_file(file1) and is_devices_file(file2):
-        logger.debug(f"Detected: {file1} = policy, {file2} = devices")
+        logger.debug("Detected: %s = policy, %s = devices", file1, file2)
         return file1, file2
     elif is_policy_file(file2) and is_devices_file(file1):
-        logger.debug(f"Detected: {file2} = policy, {file1} = devices")
+        logger.debug("Detected: %s = policy, %s = devices", file2, file1)
         return file2, file1
     else:
         # Fallback to original order if detection fails
@@ -1200,9 +1435,9 @@ def auto_detect_file_types(file1: Path, file2: Path) -> tuple[Path, Path]:
 
 def load_devices(devices_file: Path) -> List:
     """Load device configurations from file."""
-    logger.debug(f"Loading devices from: {devices_file}")
+    logger.debug("Loading devices from: %s", devices_file)
     content = devices_file.read_text()
-    logger.debug(f"Device file content: {content}")
+    logger.debug("Device file content: %s", content)
 
     if devices_file.suffix.lower() in [".yaml", ".yml"]:
         devices_config = yaml.safe_load(content)
@@ -1211,13 +1446,13 @@ def load_devices(devices_file: Path) -> List:
     else:
         raise ValueError(f"Unsupported devices file format: {devices_file.suffix}")
 
-    logger.debug(f"Parsed device config: {devices_config}")
+    logger.debug("Parsed device config: %s", devices_config)
     devices = []
 
     for device_config in devices_config.get("devices", []):
-        logger.debug(f"Processing device config: {device_config}")
+        logger.debug("Processing device config: %s", device_config)
         device_type = device_config.get("type", "").lower()
-        logger.debug(f"Device type: {device_type}")
+        logger.debug("Device type: %s", device_type)
 
         if device_type == "linux_iptables":
             logger.debug("Creating LinuxIptables device...")
@@ -1244,14 +1479,14 @@ def load_devices(devices_file: Path) -> List:
                 # Removed insecure credential fields
             )
             devices.append(device)
-            logger.debug(f"Created device: {device}")
+            logger.debug("Created device: %s", device)
         else:
             console.print(
                 f"[yellow]Warning: Unsupported device type: {device_type}[/yellow]"
             )
             console.print("[yellow]Supported types: linux_iptables[/yellow]")
 
-    logger.debug(f"Total devices loaded: {len(devices)}")
+    logger.debug("Total devices loaded: %s", len(devices))
     return devices
 
 

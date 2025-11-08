@@ -130,21 +130,21 @@ def log_success(message: str, logger: Optional[logging.Logger] = None) -> None:
     """Log a success message."""
     if logger is None:
         logger = get_logger("audit_agent")
-    logger.info(f"✓ {message}")
+    logger.info("✓ %s", message)
 
 
 def log_error(message: str, logger: Optional[logging.Logger] = None) -> None:
     """Log an error message."""
     if logger is None:
         logger = get_logger("audit_agent")
-    logger.error(f"✗ {message}")
+    logger.error("✗ %s", message)
 
 
 def log_warning(message: str, logger: Optional[logging.Logger] = None) -> None:
     """Log a warning message."""
     if logger is None:
         logger = get_logger("audit_agent")
-    logger.warning(f"⚠ {message}")
+    logger.warning("⚠ %s", message)
 
 
 def log_info(message: str, logger: Optional[logging.Logger] = None) -> None:

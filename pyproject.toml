@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "audit-agent"
-version = "0.1.0"
+version = "1.0.0"
 description = "Linux iptables Policy Enforcer & Auditor"
 readme = "README.md"
 authors = [
@@ -38,6 +38,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ai = [
+    "google-generativeai>=0.3.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -100,6 +103,7 @@ ignore = [
 "audit_agent/devices/base.py" = ["S110"]
 "audit_agent/devices/linux_iptables.py" = ["S110"]
 "audit_agent/enforcement/engine.py" = ["B007"]
+"audit_agent/ai/**/*.py" = ["S113"]  # AI modules use requests with timeout
 
 [tool.black]
 line-length = 88

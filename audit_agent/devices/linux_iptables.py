@@ -93,12 +93,13 @@ class LinuxIptables(FirewallDevice):
                         self._device_info = await self.get_device_info()
 
                         logger.info(
-                            f"Successfully connected to {self.connection.host} using private key"
+                            "Successfully connected to %s using private key",
+                            self.connection.host,
                         )
                         return True
 
                     except Exception as e:
-                        logger.debug(f"Private key authentication failed: {e}")
+                        logger.debug("Private key authentication failed: %s", e)
                         # Create fresh SSH client for next attempt
                         self._ssh_client.close()
                         self._ssh_client = paramiko.SSHClient()
@@ -107,7 +108,8 @@ class LinuxIptables(FirewallDevice):
                         )
                 else:
                     logger.warning(
-                        f"Could not load private key: {self.connection.credentials.private_key}"
+                        "Could not load private key: %s",
+                        self.connection.credentials.private_key,
                     )
 
             # Try password authentication if provided
@@ -132,12 +134,13 @@ class LinuxIptables(FirewallDevice):
                     self._device_info = await self.get_device_info()
 
                     logger.info(
-                        f"Successfully connected to {self.connection.host} using password"
+                        "Successfully connected to %s using password",
+                        self.connection.host,
                     )
                     return True
 
                 except Exception as e:
-                    logger.error(f"Password authentication failed: {e}")
+                    logger.error("Password authentication failed: %s", e)
                     return False
 
             # Try default SSH authentication (agent + default keys)
@@ -163,12 +166,13 @@ class LinuxIptables(FirewallDevice):
                 self._device_info = await self.get_device_info()
 
                 logger.info(
-                    f"Successfully connected to {self.connection.host} using default SSH authentication"
+                    "Successfully connected to %s using default SSH authentication",
+                    self.connection.host,
                 )
                 return True
 
             except Exception as e:
-                logger.debug(f"Default SSH authentication failed: {e}")
+                logger.debug("Default SSH authentication failed: %s", e)
 
                 # Last resort: prompt for password
                 password = credential_manager.get_ssh_password(
@@ -206,13 +210,14 @@ class LinuxIptables(FirewallDevice):
                         self._device_info = await self.get_device_info()
 
                         logger.info(
-                            f"Successfully connected to {self.connection.host} using prompted password"
+                            "Successfully connected to %s using prompted password",
+                            self.connection.host,
                         )
                         return True
 
                     except Exception as pwd_error:
                         logger.error(
-                            f"Prompted password authentication failed: {pwd_error}"
+                            "Prompted password authentication failed: %s", pwd_error
                         )
                         return False
                 else:
@@ -221,7 +226,7 @@ class LinuxIptables(FirewallDevice):
 
         except Exception as e:
             self._connected = False
-            logger.error(f"Failed to connect to {self.connection.host}: {e}")
+            logger.error("Failed to connect to %s: %s", self.connection.host, e)
             return False
 
     async def disconnect(self) -> None:
@@ -277,7 +282,7 @@ class LinuxIptables(FirewallDevice):
             except Exception as e:
                 # If simple approach fails, try the channel-based approach
                 logger.debug(
-                    f"Simple exec_command failed: {e}, trying channel approach"
+                    "Simple exec_command failed: %s, trying channel approach", e
                 )
                 transport = self._ssh_client.get_transport()
                 if not transport:
@@ -362,10 +367,10 @@ class LinuxIptables(FirewallDevice):
                 execution_time=execution_time,
             )
 
-            logger.debug(f"Executing command: {original_command}")
-            logger.debug(f"Result: success={result.success}, exit_code={exit_code}")
+            logger.debug("Executing command: %s", original_command)
+            logger.debug("Result: success=%s, exit_code=%s", result.success, exit_code)
             if result.error:
-                logger.debug(f"Error: {result.error}")
+                logger.debug("Error: %s", result.error)
 
             return result
 
@@ -417,7 +422,7 @@ class LinuxIptables(FirewallDevice):
             # Stop on first error if requested
             if stop_on_error and not result.success:
                 logger.error(
-                    f"Stopping batch execution due to error in command: {command}"
+                    "Stopping batch execution due to error in command: %s", command
                 )
                 break
 
@@ -644,21 +649,21 @@ class LinuxIptables(FirewallDevice):
     def rule_to_commands(self, rule: BaseRule) -> List[str]:
         """Convert a rule to iptables commands."""
         logger.debug("Converting rule to commands")
-        logger.debug(f"Rule type: {type(rule).__name__}")
-        logger.debug(f"Rule name: {getattr(rule, 'name', 'unnamed')}")
-        logger.debug(f"Is FirewallRule: {isinstance(rule, FirewallRule)}")
+        logger.debug("Rule type: %s", type(rule).__name__)
+        logger.debug("Rule name: %s", getattr(rule, "name", "unnamed"))
+        logger.debug("Is FirewallRule: %s", isinstance(rule, FirewallRule))
 
         if hasattr(rule, "__dict__"):
-            logger.debug(f"Rule attributes: {rule.__dict__}")
+            logger.debug("Rule attributes: %s", rule.__dict__)
 
         if not isinstance(rule, FirewallRule):
             logger.debug("Rule is not a FirewallRule, returning empty list")
             return []
 
         logger.debug("Processing FirewallRule")
-        logger.debug(f"Direction: {getattr(rule, 'direction', 'unknown')}")
-        logger.debug(f"Action: {getattr(rule, 'action', 'unknown')}")
-        logger.debug(f"Protocol: {getattr(rule, 'protocol', 'unknown')}")
+        logger.debug("Direction: %s", getattr(rule, "direction", "unknown"))
+        logger.debug("Action: %s", getattr(rule, "action", "unknown"))
+        logger.debug("Protocol: %s", getattr(rule, "protocol", "unknown"))
 
         # Determine chain based on direction
         chain = "INPUT"
@@ -671,31 +676,33 @@ class LinuxIptables(FirewallDevice):
             output_rules = self._build_iptables_rule(rule, "OUTPUT")
             combined_rules = input_rules + output_rules
             logger.debug(
-                f"Generated {len(combined_rules)} bidirectional commands: {combined_rules}"
+                "Generated %s bidirectional commands: %s",
+                len(combined_rules),
+                combined_rules,
             )
             return combined_rules
 
-        logger.debug(f"Creating rule for chain: {chain}")
+        logger.debug("Creating rule for chain: %s", chain)
         generated_commands = self._build_iptables_rule(rule, chain)
         logger.debug(
-            f"Generated {len(generated_commands)} commands: {generated_commands}"
+            "Generated %s commands: %s", len(generated_commands), generated_commands
         )
         return generated_commands
 
     def _build_iptables_rule(self, rule: FirewallRule, chain: str) -> List[str]:
         """Build iptables rule for a specific chain."""
-        logger.debug(f"Building iptables rule for chain: {chain}")
+        logger.debug("Building iptables rule for chain: %s", chain)
         cmd_parts = ["iptables", "-A", chain]
 
         # Protocol
         if rule.protocol:
-            logger.debug(f"Adding protocol: {rule.protocol.name}")
+            logger.debug("Adding protocol: %s", rule.protocol.name)
             cmd_parts.extend(["-p", rule.protocol.name])
 
         # Source IPs
         if rule.source_ips:
             source_ip = rule.source_ips[0]  # Use first source IP
-            logger.debug(f"Adding source IP: {source_ip}")
+            logger.debug("Adding source IP: %s", source_ip)
             from ..core.objects import IPAddress, IPRange
 
             if isinstance(source_ip, IPAddress):
@@ -706,7 +713,7 @@ class LinuxIptables(FirewallDevice):
         # Destination IPs
         if rule.destination_ips:
             dest_ip = rule.destination_ips[0]  # Use first destination IP
-            logger.debug(f"Adding destination IP: {dest_ip}")
+            logger.debug("Adding destination IP: %s", dest_ip)
             from ..core.objects import IPAddress, IPRange
 
             if isinstance(dest_ip, IPAddress):
@@ -721,7 +728,7 @@ class LinuxIptables(FirewallDevice):
             and rule.protocol.name in ["tcp", "udp"]
         ):
             port = rule.destination_ports[0]
-            logger.debug(f"Adding destination port: {port}")
+            logger.debug("Adding destination port: %s", port)
             if port.is_single():
                 cmd_parts.extend(["--dport", str(port.number)])
             elif port.is_range():
@@ -730,14 +737,14 @@ class LinuxIptables(FirewallDevice):
         # Source ports
         if rule.source_ports and rule.protocol and rule.protocol.name in ["tcp", "udp"]:
             port = rule.source_ports[0]
-            logger.debug(f"Adding source port: {port}")
+            logger.debug("Adding source port: %s", port)
             if port.is_single():
                 cmd_parts.extend(["--sport", str(port.number)])
             elif port.is_range():
                 cmd_parts.extend(["--sport", f"{port.range_start}:{port.range_end}"])
 
         # Action
-        logger.debug(f"Adding action: {rule.action}")
+        logger.debug("Adding action: %s", rule.action)
         if rule.action == Action.ALLOW:
             cmd_parts.extend(["-j", "ACCEPT"])
         elif rule.action == Action.DENY:
@@ -757,11 +764,11 @@ class LinuxIptables(FirewallDevice):
                 f"[{rule.name or 'RULE'}] ",
             ]
             final_commands = [" ".join(log_cmd), " ".join(cmd_parts)]
-            logger.debug(f"Final commands with logging: {final_commands}")
+            logger.debug("Final commands with logging: %s", final_commands)
             return final_commands
 
         final_command = [" ".join(cmd_parts)]
-        logger.debug(f"Final command: {final_command}")
+        logger.debug("Final command: %s", final_command)
         return final_command
 
     def validate_commands(self, commands: List[str]) -> List[str]:
@@ -829,7 +836,7 @@ class LinuxIptables(FirewallDevice):
                 )
             ]
 
-        logger.info(f"Applying {len(commands)} iptables commands...")
+        logger.info("Applying %s iptables commands...", len(commands))
 
         # Option 1: Execute commands individually (safer, stops on first error)
         results = await self.execute_commands_batch(commands, stop_on_error=True)

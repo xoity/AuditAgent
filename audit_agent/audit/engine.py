@@ -158,7 +158,9 @@ class RuleComparer:
         # Example: "-A INPUT -p tcp -s 0.0.0.0/0 -d 192.168.0.165/32 --dport 22 -j ACCEPT"
 
         logger.debug(
-            f"Comparing policy rule '{policy_rule.name}' with device rule: {device_content}"
+            "Comparing policy rule '%s' with device rule: %s",
+            policy_rule.name,
+            device_content,
         )
 
         # Check action match
@@ -178,7 +180,10 @@ class RuleComparer:
             action_matches = True
 
         logger.debug(
-            f"Action match: policy={policy_action}, device_accept={device_has_accept}, matches={action_matches}"
+            "Action match: policy=%s, device_accept=%s, matches=%s",
+            policy_action,
+            device_has_accept,
+            action_matches,
         )
         if not action_matches:
             return False
@@ -213,7 +218,8 @@ class RuleComparer:
             protocol_check = f"-p {policy_rule.protocol.name}"
             if protocol_check not in device_content:
                 logger.debug(
-                    f"Protocol mismatch: expected {protocol_check} not found in device rule"
+                    "Protocol mismatch: expected %s not found in device rule",
+                    protocol_check,
                 )
                 return False
 
@@ -224,7 +230,8 @@ class RuleComparer:
                 port_check = f"--dport {port.number}"
                 if port_check not in device_content:
                     logger.debug(
-                        f"Port mismatch: expected {port_check} not found in device rule"
+                        "Port mismatch: expected %s not found in device rule",
+                        port_check,
                     )
                     return False
 
@@ -246,7 +253,8 @@ class RuleComparer:
                     )
                 else:
                     logger.debug(
-                        f"Source IP mismatch: expected {source_check} not found in device rule"
+                        "Source IP mismatch: expected %s not found in device rule",
+                        source_check,
                     )
                     return False
             else:
@@ -254,7 +262,8 @@ class RuleComparer:
                 source_check = f"-s {ip_str}"
                 if source_check not in device_content:
                     logger.debug(
-                        f"Source IP mismatch: expected {source_check} not found in device rule"
+                        "Source IP mismatch: expected %s not found in device rule",
+                        source_check,
                     )
                     return False
 
@@ -268,11 +277,12 @@ class RuleComparer:
             dest_check = f"-d {ip_str}"
             if dest_check not in device_content:
                 logger.debug(
-                    f"Destination IP mismatch: expected {dest_check} not found in device rule"
+                    "Destination IP mismatch: expected %s not found in device rule",
+                    dest_check,
                 )
                 return False
 
-        logger.debug(f"Rule match successful for policy rule '{policy_rule.name}'")
+        logger.debug("Rule match successful for policy rule '%s'", policy_rule.name)
         return True
 
     def _validate_firewall_rule_match(
@@ -468,13 +478,14 @@ class RuleComparer:
             if self._is_docker_related_rule(
                 device_rule.content
             ) and not self._conflicts_with_policy(device_rule, policy_firewall_rules):
-                logger.debug(f"Skipping Docker-related rule: {device_rule.content}")
+                logger.debug("Skipping Docker-related rule: %s", device_rule.content)
                 continue
 
             # Skip LOG rules that correspond to policy rules with logging enabled
             if self._is_log_rule_for_policy(device_rule, policy_firewall_rules):
                 logger.debug(
-                    f"Skipping LOG rule that corresponds to policy: {device_rule.content}"
+                    "Skipping LOG rule that corresponds to policy: %s",
+                    device_rule.content,
                 )
                 continue
 
@@ -606,9 +617,9 @@ class AuditEngine:
             config_items = device_config.parsed_items
 
             # DEBUG: Print what we found on the device
-            logger.debug(f"Device has {len(config_items)} configuration items")
+            logger.debug("Device has %s configuration items", len(config_items))
             for item in config_items:
-                logger.debug(f"Found {item.type}: {item.content}")
+                logger.debug("Found %s: %s", item.type, item.content)
 
         except Exception as e:
             # If we can't get the configuration, that's a critical issue
@@ -640,9 +651,9 @@ class AuditEngine:
         compliant_rules = 0
 
         # DEBUG: Print policy rules
-        logger.debug(f"Policy has {total_rules} rules to check")
+        logger.debug("Policy has %s rules to check", total_rules)
         for rule in all_policy_rules:
-            logger.debug(f"Policy rule: {rule.name} - {rule}")
+            logger.debug("Policy rule: %s - %s", rule.name, rule)
 
         for rule in all_policy_rules:
             rule_issues = []
@@ -654,10 +665,10 @@ class AuditEngine:
 
                 # DEBUG: Print comparison results
                 logger.debug(
-                    f"Rule '{rule.name}' comparison found {len(rule_issues)} issues"
+                    "Rule '%s' comparison found %s issues", rule.name, len(rule_issues)
                 )
                 for issue in rule_issues:
-                    logger.debug(f"Issue: {issue.issue_type} - {issue.description}")
+                    logger.debug("Issue: %s - %s", issue.issue_type, issue.description)
             # Add other rule types as needed
 
             # Set device name for all issues
