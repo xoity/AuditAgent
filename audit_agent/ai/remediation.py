@@ -294,7 +294,9 @@ Always generate valid, complete YAML policies."""
                                             setattr(new_rule, k, v)
                                         except Exception:
                                             # ignore non-assignable fields
-                                            logger.debug(f"Could not set {k} on rule {new_rule.name}")
+                                            logger.debug(
+                                                f"Could not set {k} on rule {new_rule.name}"
+                                            )
                                 fallback.add_firewall_rule(new_rule)
                         # If rule exists in original policy, ensure it's present (it already is)
 
@@ -311,14 +313,18 @@ Always generate valid, complete YAML policies."""
                                         try:
                                             setattr(rule, k, v)
                                         except Exception:
-                                            logger.debug(f"Could not set {k} on rule {rule.name}")
+                                            logger.debug(
+                                                f"Could not set {k} on rule {rule.name}"
+                                            )
                             elif isinstance(issue.expected_config, dict):
                                 for k, v in issue.expected_config.items():
                                     if hasattr(rule, k):
                                         try:
                                             setattr(rule, k, v)
                                         except Exception:
-                                            logger.debug(f"Could not set {k} on rule {rule.name}")
+                                            logger.debug(
+                                                f"Could not set {k} on rule {rule.name}"
+                                            )
 
                     # For extra_rule, document but do not remove
                 except Exception:
