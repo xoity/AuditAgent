@@ -209,8 +209,8 @@ class TestGoogleAIProvider:
             assert result == "Generated text"
             assert mock_post.called
             call_args = mock_post.call_args
-            assert "key" in call_args[1]["params"]
-            assert call_args[1]["params"]["key"] == "test-key"
+            assert "headers" in call_args[1]
+            assert call_args[1]["headers"]["X-goog-api-key"] == "test-key"
 
     def test_generate_text_retry_on_error(self):
         """Test retry logic on API errors."""
@@ -383,7 +383,7 @@ class TestAIIntegration:
         if not api_key:
             pytest.skip("GOOGLE_AI_API_KEY not set")
 
-        config = ProviderConfig(api_key=api_key, model="gemini-1.5-flash")
+        config = ProviderConfig(api_key=api_key, model="gemini-2.0-flash-exp")
         provider = GoogleAIProvider(config)
 
         result = provider.generate_text("Say hello in one word")
