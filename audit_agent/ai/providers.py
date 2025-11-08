@@ -120,7 +120,7 @@ class GoogleAIProvider(AIProviderBase):
                     raise
                 # Exponential backoff for rate limits
                 if "429" in str(e):
-                    wait_time = (2 ** attempt) * 2  # 2, 4, 8 seconds
+                    wait_time = (2**attempt) * 2  # 2, 4, 8 seconds
                     logger.info(f"Rate limited. Waiting {wait_time}s before retry...")
                     time.sleep(wait_time)
                 else:

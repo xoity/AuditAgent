@@ -58,10 +58,10 @@ class AIRemediationEngine:
         # Convert original policy to YAML using proper serialization
         # Use model_dump with mode='json' to ensure enums are serialized as strings
         original_yaml = yaml.safe_dump(
-            original_policy.model_dump(mode='json'), 
-            default_flow_style=False, 
+            original_policy.model_dump(mode="json"),
+            default_flow_style=False,
             sort_keys=False,
-            allow_unicode=True
+            allow_unicode=True,
         )
 
         # Generate remediation request
@@ -136,7 +136,7 @@ Always generate valid, complete YAML policies."""
             for device_result in audit_result.device_results
             for issue in device_result.issues
         )
-        
+
         if all_missing and audit_result.total_issues > 0:
             logger.warning(
                 "All compliance issues are 'missing_rule' - this means the device lacks "
@@ -149,7 +149,7 @@ Always generate valid, complete YAML policies."""
             # Return the original policy as YAML
             original_yaml = original_policy.export_to_yaml()
             return original_yaml, audit_result
-        
+
         best_yaml = None
         best_result = audit_result
         best_compliance = audit_result.overall_compliance_percentage
@@ -171,7 +171,11 @@ Always generate valid, complete YAML policies."""
             except Exception as e:
                 logger.warning(f"Failed to parse generated policy: {e}")
                 # Show first 1000 chars to diagnose the issue
-                preview = remediation_yaml[:1000] if len(remediation_yaml) > 1000 else remediation_yaml
+                preview = (
+                    remediation_yaml[:1000]
+                    if len(remediation_yaml) > 1000
+                    else remediation_yaml
+                )
                 logger.warning(f"Generated YAML content:\n{preview}")
                 if iteration == max_iterations - 1:
                     if best_yaml:
@@ -219,13 +223,19 @@ Always generate valid, complete YAML policies."""
             return best_yaml, best_result
 
         # AI failed to produce a valid remediation; run programmatic fallback
-        logger.warning("AI failed to generate valid remediation policy; using programmatic fallback")
+        logger.warning(
+            "AI failed to generate valid remediation policy; using programmatic fallback"
+        )
         try:
-            fallback_policy = self._programmatic_remediation_policy(audit_result, original_policy)
+            fallback_policy = self._programmatic_remediation_policy(
+                audit_result, original_policy
+            )
             fallback_yaml = fallback_policy.export_to_yaml()
 
             # Audit the fallback policy
-            fallback_audit = asyncio.run(self.audit_engine.audit_policy(fallback_policy, devices))
+            fallback_audit = asyncio.run(
+                self.audit_engine.audit_policy(fallback_policy, devices)
+            )
 
             logger.info(
                 f"Programmatic remediation compliance: {fallback_audit.overall_compliance_percentage:.1f}%"
@@ -234,9 +244,13 @@ Always generate valid, complete YAML policies."""
             return fallback_yaml, fallback_audit
         except Exception as e:
             logger.exception("Programmatic remediation failed")
-            raise RuntimeError("Failed to generate a valid remediation policy after all iterations") from e
+            raise RuntimeError(
+                "Failed to generate a valid remediation policy after all iterations"
+            ) from e
 
-    def _programmatic_remediation_policy(self, audit_result: PolicyAuditResult, original_policy: NetworkPolicy) -> NetworkPolicy:
+    def _programmatic_remediation_policy(
+        self, audit_result: PolicyAuditResult, original_policy: NetworkPolicy
+    ) -> NetworkPolicy:
         """Create a conservative remediation policy programmatically.
 
         Strategy:

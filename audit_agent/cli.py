@@ -1097,14 +1097,14 @@ def ai_remediate(
             provider=selected_provider,
             max_iterations=max_iterations,
         )
-        
+
         # Check if policy is already correct (all issues are missing_rule)
         all_missing = all(
             issue.issue_type == "missing_rule"
             for device_result in original_result.device_results
             for issue in device_result.issues
         )
-        
+
         if all_missing and original_result.total_issues > 0:
             console.print(
                 "[yellow]ℹ  Policy is already correct - all issues are missing rules on the device.[/yellow]"
@@ -1115,7 +1115,7 @@ def ai_remediate(
             console.print(
                 "[yellow]   Run with --apply to ENFORCE these rules on the device.[/yellow]"
             )
-            
+
     except Exception as e:
         console.print(f"\n[red]✗ AI remediation failed: {e}[/red]")
         logger.exception("AI remediation error")
