@@ -814,12 +814,14 @@ def auto_generate(
                 commands_content.append(
                     f"# Generated: {remediation_policy.metadata.created_date}"
                 )
-            commands_content.extend([
-                "",
-                "# WARNING: Review these commands before executing!",
-                "# These are suggestions based on the remediation policy.",
-                "",
-            ])
+            commands_content.extend(
+                [
+                    "",
+                    "# WARNING: Review these commands before executing!",
+                    "# These are suggestions based on the remediation policy.",
+                    "",
+                ]
+            )
 
             # Group rules by device
             device_rules = {}

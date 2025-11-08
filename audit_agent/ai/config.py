@@ -49,7 +49,8 @@ class AIConfig(BaseModel):
 
         if not config_path.exists():
             logger.info(
-                "Config file not found at %s, using defaults and environment variables", config_path
+                "Config file not found at %s, using defaults and environment variables",
+                config_path,
             )
             return cls.load_from_env()
 
@@ -99,7 +100,7 @@ class AIConfig(BaseModel):
                 default_provider = AIProvider(os.getenv("AI_PROVIDER").lower())
             except ValueError:
                 logger.warning(
-                    "Invalid AI_PROVIDER: %s, using Google", os.getenv('AI_PROVIDER')
+                    "Invalid AI_PROVIDER: %s, using Google", os.getenv("AI_PROVIDER")
                 )
 
         return cls(default_provider=default_provider, providers=providers)

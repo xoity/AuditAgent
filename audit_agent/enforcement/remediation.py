@@ -318,7 +318,9 @@ class RemediationPlanner:
             rule = self._find_policy_rule_by_name(policy, issue.rule_name)
 
         if not rule:
-            logger.warning("Could not find policy rule for issue: %s", issue.description)
+            logger.warning(
+                "Could not find policy rule for issue: %s", issue.description
+            )
             return None
 
         # Generate commands
@@ -645,7 +647,9 @@ class RemediationExecutor:
     ) -> RemediationPlanResult:
         """Execute a complete remediation plan."""
         logger.info(
-            "Executing remediation plan with %s actions (dry_run=%s)", len(plan.actions), dry_run
+            "Executing remediation plan with %s actions (dry_run=%s)",
+            len(plan.actions),
+            dry_run,
         )
 
         start_time = datetime.datetime.now()
@@ -836,7 +840,9 @@ class RemediationExecutor:
             return success
 
         except Exception as e:
-            logger.error("Rollback failed for action %s with exception: %s", action.id, e)
+            logger.error(
+                "Rollback failed for action %s with exception: %s", action.id, e
+            )
             return False
 
     def _dependencies_satisfied(
@@ -880,7 +886,8 @@ class AutomatedRemediationManager:
         )
 
         logger.info(
-            "Automated remediation completed. Success rate: %.1f%%", result.overall_success_rate
+            "Automated remediation completed. Success rate: %.1f%%",
+            result.overall_success_rate,
         )
 
         return result

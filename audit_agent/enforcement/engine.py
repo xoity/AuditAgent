@@ -297,7 +297,7 @@ class EnforcementPlanner:
         logger.debug("Generating commands for rule")
         logger.debug("Rule type: %s", type(rule).__name__)
         logger.debug(
-            "Rule name/id: %s", getattr(rule, 'name', getattr(rule, 'id', 'unknown'))
+            "Rule name/id: %s", getattr(rule, "name", getattr(rule, "id", "unknown"))
         )
         if hasattr(rule, "__dict__"):
             logger.debug("Rule dict: %s", rule.__dict__)
@@ -429,7 +429,9 @@ class EnforcementPlanner:
                 # If it's already a full iptables command, convert to delete
                 if " -A " in rule_config:
                     delete_command = rule_config.replace(" -A ", " -D ", 1)
-                    logger.debug("Generated iptables delete command: %s", delete_command)
+                    logger.debug(
+                        "Generated iptables delete command: %s", delete_command
+                    )
                     return [delete_command]
                 else:
                     logger.debug("Cannot generate delete command for: %s", rule_config)
@@ -535,7 +537,8 @@ class EnhancedEnforcementEngine:
         if use_smart_remediation:
             # Use smart automated remediation
             logger.info(
-                "Found %s compliance issues. Starting automated remediation...", audit_result.total_issues
+                "Found %s compliance issues. Starting automated remediation...",
+                audit_result.total_issues,
             )
             return await self.remediation_manager.auto_remediate(
                 policy, audit_result, dry_run=dry_run, stop_on_error=stop_on_error
@@ -634,7 +637,9 @@ class EnhancedEnforcementEngine:
         # Execute actions in order
         logger.debug("Processing %s actions", len(actions))
         for i, action in enumerate(actions):
-            logger.debug("Action %s: %s - %s", i + 1, action.action_type, action.description)
+            logger.debug(
+                "Action %s: %s - %s", i + 1, action.action_type, action.description
+            )
             logger.debug("Commands: %s", action.commands)
             logger.debug("Command count: %s", len(action.commands))
 

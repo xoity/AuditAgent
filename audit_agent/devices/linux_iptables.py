@@ -93,7 +93,8 @@ class LinuxIptables(FirewallDevice):
                         self._device_info = await self.get_device_info()
 
                         logger.info(
-                            "Successfully connected to %s using private key", self.connection.host
+                            "Successfully connected to %s using private key",
+                            self.connection.host,
                         )
                         return True
 
@@ -107,7 +108,8 @@ class LinuxIptables(FirewallDevice):
                         )
                 else:
                     logger.warning(
-                        "Could not load private key: %s", self.connection.credentials.private_key
+                        "Could not load private key: %s",
+                        self.connection.credentials.private_key,
                     )
 
             # Try password authentication if provided
@@ -132,7 +134,8 @@ class LinuxIptables(FirewallDevice):
                     self._device_info = await self.get_device_info()
 
                     logger.info(
-                        "Successfully connected to %s using password", self.connection.host
+                        "Successfully connected to %s using password",
+                        self.connection.host,
                     )
                     return True
 
@@ -163,7 +166,8 @@ class LinuxIptables(FirewallDevice):
                 self._device_info = await self.get_device_info()
 
                 logger.info(
-                    "Successfully connected to %s using default SSH authentication", self.connection.host
+                    "Successfully connected to %s using default SSH authentication",
+                    self.connection.host,
                 )
                 return True
 
@@ -206,7 +210,8 @@ class LinuxIptables(FirewallDevice):
                         self._device_info = await self.get_device_info()
 
                         logger.info(
-                            "Successfully connected to %s using prompted password", self.connection.host
+                            "Successfully connected to %s using prompted password",
+                            self.connection.host,
                         )
                         return True
 
@@ -645,7 +650,7 @@ class LinuxIptables(FirewallDevice):
         """Convert a rule to iptables commands."""
         logger.debug("Converting rule to commands")
         logger.debug("Rule type: %s", type(rule).__name__)
-        logger.debug("Rule name: %s", getattr(rule, 'name', 'unnamed'))
+        logger.debug("Rule name: %s", getattr(rule, "name", "unnamed"))
         logger.debug("Is FirewallRule: %s", isinstance(rule, FirewallRule))
 
         if hasattr(rule, "__dict__"):
@@ -656,9 +661,9 @@ class LinuxIptables(FirewallDevice):
             return []
 
         logger.debug("Processing FirewallRule")
-        logger.debug("Direction: %s", getattr(rule, 'direction', 'unknown'))
-        logger.debug("Action: %s", getattr(rule, 'action', 'unknown'))
-        logger.debug("Protocol: %s", getattr(rule, 'protocol', 'unknown'))
+        logger.debug("Direction: %s", getattr(rule, "direction", "unknown"))
+        logger.debug("Action: %s", getattr(rule, "action", "unknown"))
+        logger.debug("Protocol: %s", getattr(rule, "protocol", "unknown"))
 
         # Determine chain based on direction
         chain = "INPUT"
@@ -671,7 +676,9 @@ class LinuxIptables(FirewallDevice):
             output_rules = self._build_iptables_rule(rule, "OUTPUT")
             combined_rules = input_rules + output_rules
             logger.debug(
-                "Generated %s bidirectional commands: %s", len(combined_rules), combined_rules
+                "Generated %s bidirectional commands: %s",
+                len(combined_rules),
+                combined_rules,
             )
             return combined_rules
 

@@ -53,8 +53,8 @@ class AIRemediationEngine:
         analysis = self.analyzer.analyze(audit_result)
         logger.debug(
             "Analyzed %s issues across %s devices",
-            analysis['total_issues'],
-            len(analysis['devices'])
+            analysis["total_issues"],
+            len(analysis["devices"]),
         )
 
         # Convert original policy to YAML using proper serialization
@@ -161,7 +161,7 @@ You understand iptables, network security best practices, and YAML policy format
                 "Remediation iteration %s/%s (current compliance: %.1f%%)",
                 iteration + 1,
                 max_iterations,
-                best_compliance
+                best_compliance,
             )
 
             # Generate remediation policy
@@ -203,7 +203,7 @@ You understand iptables, network security best practices, and YAML policy format
             logger.info(
                 "Remediation policy compliance: %.1f%% (improvement: %+.1f%%)",
                 new_compliance,
-                new_compliance - best_compliance
+                new_compliance - best_compliance,
             )
 
             # Check if we've improved
@@ -239,7 +239,7 @@ You understand iptables, network security best practices, and YAML policy format
 
             logger.info(
                 "Programmatic remediation compliance: %.1f%%",
-                fallback_audit.overall_compliance_percentage
+                fallback_audit.overall_compliance_percentage,
             )
             return fallback_yaml, fallback_audit
         except Exception as e:
@@ -304,7 +304,9 @@ You understand iptables, network security best practices, and YAML policy format
                                         except Exception:
                                             # ignore non-assignable fields
                                             logger.debug(
-                                                "Could not set %s on rule %s", k, new_rule.name
+                                                "Could not set %s on rule %s",
+                                                k,
+                                                new_rule.name,
                                             )
                                 fallback.add_firewall_rule(new_rule)
                         # If rule exists in original policy, ensure it's present (it already is)
@@ -323,7 +325,9 @@ You understand iptables, network security best practices, and YAML policy format
                                             setattr(rule, k, v)
                                         except Exception:
                                             logger.debug(
-                                                "Could not set %s on rule %s", k, rule.name
+                                                "Could not set %s on rule %s",
+                                                k,
+                                                rule.name,
                                             )
                             elif isinstance(issue.expected_config, dict):
                                 for k, v in issue.expected_config.items():
@@ -332,7 +336,9 @@ You understand iptables, network security best practices, and YAML policy format
                                             setattr(rule, k, v)
                                         except Exception:
                                             logger.debug(
-                                                "Could not set %s on rule %s", k, rule.name
+                                                "Could not set %s on rule %s",
+                                                k,
+                                                rule.name,
                                             )
 
                     # For extra_rule, document but do not remove

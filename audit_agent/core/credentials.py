@@ -84,7 +84,9 @@ class CredentialManager:
         """Prompt user for SSH password."""
         if self._non_interactive:
             logger.error(
-                "Cannot prompt for SSH password in non-interactive mode for %s@%s", username, host
+                "Cannot prompt for SSH password in non-interactive mode for %s@%s",
+                username,
+                host,
             )
             return None
 
@@ -153,7 +155,10 @@ class CredentialManager:
                     )
 
                     logger.debug(
-                        "SSH agent key #%s authentication successful for %s@%s", i + 1, username, host
+                        "SSH agent key #%s authentication successful for %s@%s",
+                        i + 1,
+                        username,
+                        host,
                     )
                     client.close()
                     return key
