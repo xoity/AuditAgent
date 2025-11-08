@@ -30,6 +30,9 @@ try:
     AI_AVAILABLE = True
 except ImportError:
     AI_AVAILABLE = False
+    AIConfig = None  # type: ignore
+    AIProvider = None  # type: ignore
+    AIRemediationEngine = None  # type: ignore
 
 
 def version_callback(value: bool):
@@ -38,7 +41,7 @@ def version_callback(value: bool):
         raise typer.Exit()
 
 
-def help_callback(ctx: typer.Context, param: typer.CallbackParam, value: bool):
+def help_callback(ctx: typer.Context, _param: typer.CallbackParam, value: bool):
     if not value or ctx.resilient_parsing:
         return
 
@@ -232,9 +235,10 @@ app = typer.Typer(
 logger = get_logger(__name__)
 
 
+# we need to implement this method for later
 @app.callback()
 def main_callback(
-    help: bool = typer.Option(
+    show_help: bool = typer.Option(
         False,
         "-h",
         "--help",
@@ -253,7 +257,7 @@ def main_callback(
     """
     AuditAgent - Agentless Network Security Policy Enforcer & Auditor
     """
-    pass
+    pass  ## noooooooooooooooooooooooooooooooS
 
 
 @app.command()
@@ -897,7 +901,7 @@ def auto_generate(
 @app.command()
 def create_example(
     output_file: Path = typer.Argument(..., help="Output file path for example policy"),
-    format: str = typer.Option("yaml", help="Output format: yaml, json"),
+    output_format: str = typer.Option("yaml", help="Output format: yaml, json"),
 ):
     """Create an example network security policy."""
 
@@ -962,7 +966,7 @@ def create_example(
     policy.add_firewall_rule(deny_rule)
 
     # Export policy
-    if format.lower() == "yaml":
+    if output_format.lower() == "yaml":
         content = policy.export_to_yaml()
     else:
         content = policy.export_to_json()
@@ -1019,10 +1023,6 @@ def ai_remediate(
         os.environ["LOG_LEVEL"] = "INFO"
     elif verbose >= 2:
         os.environ["LOG_LEVEL"] = "DEBUG"
-
-    from .core.logging_config import get_logger
-
-    logger = get_logger(__name__)
 
     console.print("[bold blue]AI-Powered Remediation[/bold blue]\n")
 

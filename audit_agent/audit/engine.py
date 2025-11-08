@@ -92,7 +92,7 @@ class RuleComparer:
     """Compares policy rules with device configurations."""
 
     def __init__(self):
-        pass
+        self._current_device_config = None
 
     def compare_firewall_rule(
         self, policy_rule: FirewallRule, device_config: List[ConfigurationItem]
@@ -147,8 +147,9 @@ class RuleComparer:
 
         return candidates
 
+    @staticmethod
     def _rules_might_match(
-        self, policy_rule: FirewallRule, device_rule: ConfigurationItem
+        policy_rule: FirewallRule, device_rule: ConfigurationItem
     ) -> bool:
         """Check if a policy rule and device rule might be related."""
         # Parse iptables rule from device
@@ -376,7 +377,8 @@ class RuleComparer:
         # If they share several common elements (IPs, ports, protocols), they likely match
         return len(common_elements) > 3
 
-    def _extract_chain_from_rule(self, rule_content: str) -> str:
+    @staticmethod
+    def _extract_chain_from_rule(rule_content: str) -> str:
         """Extract the chain name from an iptables rule."""
         if "-a input" in rule_content:
             return "input"
@@ -409,8 +411,9 @@ class RuleComparer:
 
         return False
 
+    @staticmethod
     def _log_rule_matches_policy_rule(
-        self, log_rule: ConfigurationItem, policy_rule: FirewallRule
+        log_rule: ConfigurationItem, policy_rule: FirewallRule
     ) -> bool:
         """Check if a LOG rule matches a policy rule's parameters."""
         log_content = log_rule.content.lower()
@@ -513,7 +516,8 @@ class RuleComparer:
 
         return issues
 
-    def _is_docker_related_rule(self, rule_content: str) -> bool:
+    @staticmethod
+    def _is_docker_related_rule(rule_content: str) -> bool:
         """Check if a rule is Docker-related and should be ignored."""
         docker_indicators = [
             "docker",
@@ -533,7 +537,8 @@ class RuleComparer:
             indicator.lower() in content_lower for indicator in docker_indicators
         )
 
-    def _is_system_rule(self, rule_content: str) -> bool:
+    @staticmethod
+    def _is_system_rule(rule_content: str) -> bool:
         """Check if a rule is a system-level rule (lower priority for compliance)."""
         system_indicators = [
             "localhost",
@@ -545,8 +550,9 @@ class RuleComparer:
         content_lower = rule_content.lower()
         return any(indicator in content_lower for indicator in system_indicators)
 
+    @staticmethod
     def _conflicts_with_policy(
-        self, device_rule: ConfigurationItem, policy_rules: List[FirewallRule]
+        device_rule: ConfigurationItem, policy_rules: List[FirewallRule]
     ) -> bool:
         """Check if a Docker rule conflicts with explicit policy rules."""
         # This is a placeholder for more sophisticated conflict detection
@@ -557,10 +563,10 @@ class RuleComparer:
         self, device_rule: ConfigurationItem, policy_rules: List[FirewallRule]
     ) -> bool:
         """Check if a device rule is covered by any policy rule."""
-        for policy_rule in policy_rules:
-            if self._rules_might_match(policy_rule, device_rule):
-                return True
-        return False
+        return any(
+            self._rules_might_match(policy_rule, device_rule)
+            for policy_rule in policy_rules
+        )
 
 
 class AuditEngine:
@@ -708,39 +714,38 @@ class AuditEngine:
     def generate_audit_report(
         self,
         audit_result: PolicyAuditResult,
-        format: str = "text",
+        report_format: str = "text",
         full_report: bool = False,
     ) -> str:
         """Generate a human-readable audit report."""
-        if format == "text":
+        if report_format == "text":
             return self._generate_text_report(audit_result, full_report)
-        elif format == "html":
+        elif report_format == "html":
             return self._generate_html_report(audit_result)
-        elif format == "json":
+        elif report_format == "json":
             return audit_result.json(indent=2)
         else:
-            raise ValueError(f"Unsupported report format: {format}")
+            raise ValueError(f"Unsupported report format: {report_format}")
 
     def _generate_text_report(
         self, audit_result: PolicyAuditResult, full_report: bool = False
     ) -> str:
         """Generate a text-based audit report."""
-        report = []
-        report.append("=" * 80)
-        report.append("NETWORK SECURITY POLICY AUDIT REPORT")
-        report.append("=" * 80)
-        report.append("")
-        report.append(f"Policy: {audit_result.policy_name}")
-        report.append(f"Audit Date: {audit_result.audit_timestamp}")
-        report.append(
-            f"Overall Compliance: {audit_result.overall_compliance_percentage:.1f}%"
-        )
-        report.append("")
-        report.append(f"Devices Audited: {audit_result.devices_audited}")
-        report.append(f"Compliant Devices: {audit_result.compliant_devices}")
-        report.append(f"Non-Compliant Devices: {audit_result.non_compliant_devices}")
-        report.append(f"Total Issues Found: {audit_result.total_issues}")
-        report.append("")
+        report = [
+            "=" * 80,
+            "NETWORK SECURITY POLICY AUDIT REPORT",
+            "=" * 80,
+            "",
+            f"Policy: {audit_result.policy_name}",
+            f"Audit Date: {audit_result.audit_timestamp}",
+            f"Overall Compliance: {audit_result.overall_compliance_percentage:.1f}%",
+            "",
+            f"Devices Audited: {audit_result.devices_audited}",
+            f"Compliant Devices: {audit_result.compliant_devices}",
+            f"Non-Compliant Devices: {audit_result.non_compliant_devices}",
+            f"Total Issues Found: {audit_result.total_issues}",
+            "",
+        ]
 
         # Summary by severity
         critical_issues = audit_result.get_critical_issues()
@@ -880,7 +885,8 @@ class AuditEngine:
 
         return "\n".join(report)
 
-    def _generate_html_report(self, audit_result: PolicyAuditResult) -> str:
+    @staticmethod
+    def _generate_html_report(audit_result: PolicyAuditResult) -> str:
         """Generate an HTML audit report."""
         # This would generate a full HTML report
         # For brevity, returning a simple HTML structure
@@ -897,23 +903,25 @@ class AuditEngine:
         </html>
         """
 
-    def _format_firewall_rule(self, rule) -> str:
+    @staticmethod
+    def _format_firewall_rule(rule) -> str:
         """Format a firewall rule for display in reports."""
         if not rule:
             return "N/A"
 
         # Import here to avoid circular imports
-        from ..core.rules import FirewallRule
+        from ..core.rules import FirewallRule as CoreFirewallRule
 
-        if not isinstance(rule, FirewallRule):
+        if not isinstance(rule, CoreFirewallRule):
             return str(rule)
 
-        lines = []
-        lines.append(f"Rule: {rule.name}")
-        lines.append(f"    Description: {rule.description}")
-        lines.append(f"    Action: {rule.action.value}")
-        lines.append(f"    Direction: {rule.direction.value}")
-        lines.append(f"    Protocol: {rule.protocol.name if rule.protocol else 'N/A'}")
+        lines = [
+            f"Rule: {rule.name}",
+            f"    Description: {rule.description}",
+            f"    Action: {rule.action.value}",
+            f"    Direction: {rule.direction.value}",
+            f"    Protocol: {rule.protocol.name if rule.protocol else 'N/A'}",
+        ]
 
         if rule.source_ips:
             source_ips = ", ".join([str(ip) for ip in rule.source_ips])

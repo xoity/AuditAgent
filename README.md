@@ -47,6 +47,7 @@ audit-agent ai-remediate policy.yaml devices.yaml --apply
 ```
 
 **Features:**
+
 - 🎯 Achieves 100% compliance automatically
 - 🔄 Iterative refinement for optimal results
 - 📊 Detailed analysis and summary reports
