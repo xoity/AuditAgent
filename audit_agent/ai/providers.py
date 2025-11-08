@@ -93,7 +93,7 @@ class GoogleAIProvider(AIProviderBase):
             "X-goog-api-key": self.api_key,
         }
 
-        logger.debug(f"Calling Google AI with model {self.model}")
+        logger.debug("Calling Google AI with model %s", self.model)
 
         for attempt in range(self.max_retries):
             try:
@@ -108,25 +108,25 @@ class GoogleAIProvider(AIProviderBase):
                 result = response.json()
                 if "candidates" in result and result["candidates"]:
                     text = result["candidates"][0]["content"]["parts"][0]["text"]
-                    logger.debug(f"Generated {len(text)} characters")
+                    logger.debug("Generated %s characters", len(text))
                     return text
                 else:
                     msg = f"No candidates in response: {result}"
                     raise ValueError(msg)
 
             except requests.exceptions.RequestException as e:
-                logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                logger.warning("Attempt %s failed: %s", attempt + 1, e)
                 if attempt == self.max_retries - 1:
                     raise
                 # Exponential backoff for rate limits
                 if "429" in str(e):
                     wait_time = (2**attempt) * 2  # 2, 4, 8 seconds
-                    logger.info(f"Rate limited. Waiting {wait_time}s before retry...")
+                    logger.info("Rate limited. Waiting %ss before retry...", wait_time)
                     time.sleep(wait_time)
                 else:
                     time.sleep(1)
             except (KeyError, IndexError, ValueError) as e:
-                logger.error(f"Failed to parse response: {e}")
+                logger.error("Failed to parse response: %s", e)
                 raise
 
         msg = "Max retries exceeded"
@@ -167,8 +167,8 @@ class GoogleAIProvider(AIProviderBase):
         try:
             return json.loads(response_text)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
-            logger.debug(f"Response text: {response_text}")
+            logger.error("Failed to parse JSON response: %s", e)
+            logger.debug("Response text: %s", response_text)
             raise
 
 
@@ -209,7 +209,7 @@ class OpenAIProvider(AIProviderBase):
             "Authorization": f"Bearer {self.api_key}",
         }
 
-        logger.debug(f"Calling OpenAI with model {self.model}")
+        logger.debug("Calling OpenAI with model %s", self.model)
 
         for attempt in range(self.max_retries):
             try:
@@ -220,11 +220,11 @@ class OpenAIProvider(AIProviderBase):
 
                 result = response.json()
                 text = result["choices"][0]["message"]["content"]
-                logger.debug(f"Generated {len(text)} characters")
+                logger.debug("Generated %s characters", len(text))
                 return text
 
             except requests.exceptions.RequestException as e:
-                logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                logger.warning("Attempt %s failed: %s", attempt + 1, e)
                 if attempt == self.max_retries - 1:
                     raise
 
@@ -264,7 +264,7 @@ class OpenAIProvider(AIProviderBase):
         try:
             return json.loads(response_text)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {e}")
+            logger.error("Failed to parse JSON response: %s", e)
             raise
 
 

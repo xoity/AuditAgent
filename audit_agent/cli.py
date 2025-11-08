@@ -304,20 +304,20 @@ def audit(
     try:
         policy = load_policy(policy_file)
         console.print(f"✓ Loaded policy: {policy.metadata.name}")
-        logger.info(f"Loaded policy: {policy.metadata.name}")
+        logger.info("Loaded policy: %s", policy.metadata.name)
     except Exception as e:
         console.print(f"[red]Error loading policy: {e}[/red]")
-        logger.error(f"Error loading policy: {e}")
+        logger.error("Error loading policy: %s", e)
         raise typer.Exit(1)
 
     # Load devices
     try:
         devices = load_devices(devices_file)
         console.print(f"✓ Loaded {len(devices)} devices")
-        logger.info(f"Loaded {len(devices)} devices")
+        logger.info("Loaded %s devices", len(devices))
     except Exception as e:
         console.print(f"[red]Error loading devices: {e}[/red]")
-        logger.error(f"Error loading devices: {e}")
+        logger.error("Error loading devices: %s", e)
         raise typer.Exit(1)
 
     # Run audit
@@ -331,7 +331,7 @@ def audit(
         logger.info("Audit completed successfully")
     except Exception as e:
         console.print(f"[red]Error during audit: {e}[/red]")
-        logger.error(f"Error during audit: {e}")
+        logger.error("Error during audit: %s", e)
         raise typer.Exit(1)
 
     # Generate report
@@ -340,7 +340,7 @@ def audit(
     if output_file:
         output_file.write_text(report)
         console.print(f"✓ Report saved to {output_file}")
-        logger.info(f"Report saved to {output_file}")
+        logger.info("Report saved to %s", output_file)
     else:
         console.print(report)
 
@@ -410,11 +410,11 @@ def enforce(
         devices = load_devices(devices_file)
         console.print(f"✓ Loaded policy: {policy.metadata.name}")
         console.print(f"✓ Loaded {len(devices)} devices")
-        logger.info(f"Loaded policy: {policy.metadata.name}")
-        logger.info(f"Loaded {len(devices)} devices")
+        logger.info("Loaded policy: %s", policy.metadata.name)
+        logger.info("Loaded %s devices", len(devices))
     except Exception as e:
         console.print(f"[red]Error loading configuration: {e}[/red]")
-        logger.error(f"Error loading configuration: {e}")
+        logger.error("Error loading configuration: %s", e)
         raise typer.Exit(1)
 
     # Run enforcement
@@ -430,7 +430,7 @@ def enforce(
         logger.info("Enforcement completed successfully")
     except Exception as e:
         console.print(f"[red]Error during enforcement: {e}[/red]")
-        logger.error(f"Error during enforcement: {e}")
+        logger.error("Error during enforcement: %s", e)
         raise typer.Exit(1)
 
     # Generate report
@@ -439,7 +439,7 @@ def enforce(
     if output_file:
         output_file.write_text(report)
         console.print(f"✓ Report saved to {output_file}")
-        logger.info(f"Report saved to {output_file}")
+        logger.info("Report saved to %s", output_file)
     else:
         console.print(report)
 
@@ -515,11 +515,11 @@ def auto_remediate(
         devices = load_devices(devices_file)
         console.print(f"✓ Loaded policy: {policy.metadata.name}")
         console.print(f"✓ Loaded {len(devices)} devices")
-        logger.info(f"Loaded policy: {policy.metadata.name}")
-        logger.info(f"Loaded {len(devices)} devices")
+        logger.info("Loaded policy: %s", policy.metadata.name)
+        logger.info("Loaded %s devices", len(devices))
     except Exception as e:
         console.print(f"[red]Error loading configuration: {e}[/red]")
-        logger.error(f"Error loading configuration: {e}")
+        logger.error("Error loading configuration: %s", e)
         raise typer.Exit(1)
 
     # Validate strategy
@@ -551,7 +551,7 @@ def auto_remediate(
         logger.info("Automated remediation completed successfully")
     except Exception as e:
         console.print(f"[red]Error during automated remediation: {e}[/red]")
-        logger.error(f"Error during automated remediation: {e}")
+        logger.error("Error during automated remediation: %s", e)
         raise typer.Exit(1)
 
     # Generate report
@@ -562,7 +562,7 @@ def auto_remediate(
     if output_file:
         output_file.write_text(report)
         console.print(f"✓ Report saved to {output_file}")
-        logger.info(f"Report saved to {output_file}")
+        logger.info("Report saved to %s", output_file)
     else:
         console.print(report)
 
@@ -668,20 +668,20 @@ def auto_generate(
     try:
         policy = load_policy(policy_file)
         console.print(f"✓ Loaded policy: {policy.metadata.name}")
-        logger.info(f"Loaded policy: {policy.metadata.name}")
+        logger.info("Loaded policy: %s", policy.metadata.name)
     except Exception as e:
         console.print(f"[red]Error loading policy: {e}[/red]")
-        logger.error(f"Error loading policy: {e}")
+        logger.error("Error loading policy: %s", e)
         raise typer.Exit(1)
 
     # Load devices
     try:
         devices = load_devices(devices_file)
         console.print(f"✓ Loaded {len(devices)} devices")
-        logger.info(f"Loaded {len(devices)} devices")
+        logger.info("Loaded %s devices", len(devices))
     except Exception as e:
         console.print(f"[red]Error loading devices: {e}[/red]")
-        logger.error(f"Error loading devices: {e}")
+        logger.error("Error loading devices: %s", e)
         raise typer.Exit(1)
 
     # Run audit
@@ -694,7 +694,7 @@ def auto_generate(
         logger.info("Audit completed successfully")
     except Exception as e:
         console.print(f"[red]Error during audit: {e}[/red]")
-        logger.error(f"Error during audit: {e}")
+        logger.error("Error during audit: %s", e)
         raise typer.Exit(1)
 
     # Check if there are any issues
@@ -805,23 +805,21 @@ def auto_generate(
         )
 
         try:
-            commands_content = ["#!/bin/bash"]
-            commands_content.append(
-                "# Generated iptables commands for remediation policy"
-            )
-            commands_content.append(f"# Policy: {remediation_policy.metadata.name}")
+            commands_content = [
+                "#!/bin/bash",
+                "# Generated iptables commands for remediation policy",
+                f"# Policy: {remediation_policy.metadata.name}",
+            ]
             if remediation_policy.metadata.created_date:
                 commands_content.append(
                     f"# Generated: {remediation_policy.metadata.created_date}"
                 )
-            commands_content.append("")
-            commands_content.append(
-                "# WARNING: Review these commands before executing!"
-            )
-            commands_content.append(
-                "# These are suggestions based on the remediation policy."
-            )
-            commands_content.append("")
+            commands_content.extend([
+                "",
+                "# WARNING: Review these commands before executing!",
+                "# These are suggestions based on the remediation policy.",
+                "",
+            ])
 
             # Group rules by device
             device_rules = {}
@@ -1378,7 +1376,7 @@ def load_policy(policy_file: Path) -> NetworkPolicy:
 
 def auto_detect_file_types(file1: Path, file2: Path) -> tuple[Path, Path]:
     """Auto-detect which file is policy and which is devices based on content."""
-    logger.debug(f"Auto-detecting file types for: {file1} and {file2}")
+    logger.debug("Auto-detecting file types for: %s and %s", file1, file2)
 
     def is_policy_file(file_path: Path) -> bool:
         """Check if a file contains policy content."""
@@ -1422,10 +1420,10 @@ def auto_detect_file_types(file1: Path, file2: Path) -> tuple[Path, Path]:
 
     # Determine which is which
     if is_policy_file(file1) and is_devices_file(file2):
-        logger.debug(f"Detected: {file1} = policy, {file2} = devices")
+        logger.debug("Detected: %s = policy, %s = devices", file1, file2)
         return file1, file2
     elif is_policy_file(file2) and is_devices_file(file1):
-        logger.debug(f"Detected: {file2} = policy, {file1} = devices")
+        logger.debug("Detected: %s = policy, %s = devices", file2, file1)
         return file2, file1
     else:
         # Fallback to original order if detection fails
@@ -1435,9 +1433,9 @@ def auto_detect_file_types(file1: Path, file2: Path) -> tuple[Path, Path]:
 
 def load_devices(devices_file: Path) -> List:
     """Load device configurations from file."""
-    logger.debug(f"Loading devices from: {devices_file}")
+    logger.debug("Loading devices from: %s", devices_file)
     content = devices_file.read_text()
-    logger.debug(f"Device file content: {content}")
+    logger.debug("Device file content: %s", content)
 
     if devices_file.suffix.lower() in [".yaml", ".yml"]:
         devices_config = yaml.safe_load(content)
@@ -1446,13 +1444,13 @@ def load_devices(devices_file: Path) -> List:
     else:
         raise ValueError(f"Unsupported devices file format: {devices_file.suffix}")
 
-    logger.debug(f"Parsed device config: {devices_config}")
+    logger.debug("Parsed device config: %s", devices_config)
     devices = []
 
     for device_config in devices_config.get("devices", []):
-        logger.debug(f"Processing device config: {device_config}")
+        logger.debug("Processing device config: %s", device_config)
         device_type = device_config.get("type", "").lower()
-        logger.debug(f"Device type: {device_type}")
+        logger.debug("Device type: %s", device_type)
 
         if device_type == "linux_iptables":
             logger.debug("Creating LinuxIptables device...")
@@ -1479,14 +1477,14 @@ def load_devices(devices_file: Path) -> List:
                 # Removed insecure credential fields
             )
             devices.append(device)
-            logger.debug(f"Created device: {device}")
+            logger.debug("Created device: %s", device)
         else:
             console.print(
                 f"[yellow]Warning: Unsupported device type: {device_type}[/yellow]"
             )
             console.print("[yellow]Supported types: linux_iptables[/yellow]")
 
-    logger.debug(f"Total devices loaded: {len(devices)}")
+    logger.debug("Total devices loaded: %s", len(devices))
     return devices
 
 

@@ -49,7 +49,7 @@ class AIConfig(BaseModel):
 
         if not config_path.exists():
             logger.info(
-                f"Config file not found at {config_path}, using defaults and environment variables"
+                "Config file not found at %s, using defaults and environment variables", config_path
             )
             return cls.load_from_env()
 
@@ -59,7 +59,7 @@ class AIConfig(BaseModel):
                 ai_config = data.get("ai", {})
                 return cls(**ai_config)
         except Exception as e:
-            logger.warning(f"Failed to load config from {config_path}: {e}")
+            logger.warning("Failed to load config from %s: %s", config_path, e)
             return cls.load_from_env()
 
     @classmethod
@@ -99,7 +99,7 @@ class AIConfig(BaseModel):
                 default_provider = AIProvider(os.getenv("AI_PROVIDER").lower())
             except ValueError:
                 logger.warning(
-                    f"Invalid AI_PROVIDER: {os.getenv('AI_PROVIDER')}, using Google"
+                    "Invalid AI_PROVIDER: %s, using Google", os.getenv('AI_PROVIDER')
                 )
 
         return cls(default_provider=default_provider, providers=providers)
@@ -140,4 +140,4 @@ class AIConfig(BaseModel):
         with open(config_path, "w") as f:
             yaml.dump(existing_data, f, default_flow_style=False, sort_keys=False)
 
-        logger.info(f"Configuration saved to {config_path}")
+        logger.info("Configuration saved to %s", config_path)

@@ -159,12 +159,12 @@ class RemediationValidator:
             for validation_command in action.validation_commands:
                 result = await action.device.execute_command(validation_command)
                 if not result.success:
-                    logger.warning(f"Validation command failed: {validation_command}")
+                    logger.warning("Validation command failed: %s", validation_command)
                     return False
 
             return True
         except Exception as e:
-            logger.error(f"Validation failed with exception: {e}")
+            logger.error("Validation failed with exception: %s", e)
             return False
 
     async def _is_device_responsive(self, device: NetworkDevice) -> bool:
@@ -231,7 +231,7 @@ class RemediationPlanner:
         self, policy: NetworkPolicy, audit_result: PolicyAuditResult
     ) -> RemediationPlan:
         """Create a comprehensive remediation plan."""
-        logger.info(f"Creating remediation plan with {self.strategy.value} strategy")
+        logger.info("Creating remediation plan with %s strategy", self.strategy.value)
 
         actions = []
 
@@ -264,7 +264,7 @@ class RemediationPlanner:
             created_timestamp=datetime.datetime.now().isoformat(),
         )
 
-        logger.info(f"Created remediation plan with {len(filtered_actions)} actions")
+        logger.info("Created remediation plan with %s actions", len(filtered_actions))
         return plan
 
     async def _plan_device_remediation(
@@ -318,13 +318,13 @@ class RemediationPlanner:
             rule = self._find_policy_rule_by_name(policy, issue.rule_name)
 
         if not rule:
-            logger.warning(f"Could not find policy rule for issue: {issue.description}")
+            logger.warning("Could not find policy rule for issue: %s", issue.description)
             return None
 
         # Generate commands
         commands = device.rule_to_commands(rule)
         if not commands:
-            logger.warning(f"Could not generate commands for rule: {rule.name}")
+            logger.warning("Could not generate commands for rule: %s", rule.name)
             return None
 
         # Generate rollback commands
@@ -645,7 +645,7 @@ class RemediationExecutor:
     ) -> RemediationPlanResult:
         """Execute a complete remediation plan."""
         logger.info(
-            f"Executing remediation plan with {len(plan.actions)} actions (dry_run={dry_run})"
+            "Executing remediation plan with %s actions (dry_run=%s)", len(plan.actions), dry_run
         )
 
         start_time = datetime.datetime.now()
@@ -659,13 +659,13 @@ class RemediationExecutor:
         for action_id in plan.execution_order:
             action = next((a for a in plan.actions if a.id == action_id), None)
             if not action:
-                logger.warning(f"Action {action_id} not found in plan")
+                logger.warning("Action %s not found in plan", action_id)
                 continue
 
             # Check if dependencies are satisfied
             if not self._dependencies_satisfied(action, results):
                 logger.warning(
-                    f"Dependencies not satisfied for action {action_id}, skipping"
+                    "Dependencies not satisfied for action %s, skipping", action_id
                 )
                 action.status = RemediationStatus.SKIPPED
                 skipped += 1
@@ -690,7 +690,7 @@ class RemediationExecutor:
                 # Stop on error if requested
                 if stop_on_error:
                     logger.error(
-                        f"Stopping execution due to failed action: {action_id}"
+                        "Stopping execution due to failed action: %s", action_id
                     )
                     break
 
@@ -717,7 +717,7 @@ class RemediationExecutor:
         self, action: RemediationAction, dry_run: bool
     ) -> RemediationResult:
         """Execute a single remediation action."""
-        logger.info(f"Executing action: {action.description}")
+        logger.info("Executing action: %s", action.description)
         action.status = RemediationStatus.IN_PROGRESS
 
         start_time = datetime.datetime.now()
@@ -729,7 +729,7 @@ class RemediationExecutor:
                 warnings = await self.validator.validate_action_pre_execution(action)
                 if warnings:
                     logger.warning(
-                        f"Pre-execution warnings for {action.id}: {warnings}"
+                        "Pre-execution warnings for %s: %s", action.id, warnings
                     )
 
             # Execute commands
@@ -755,7 +755,7 @@ class RemediationExecutor:
                     if not validation_passed:
                         success = False
                         logger.warning(
-                            f"Post-execution validation failed for action {action.id}"
+                            "Post-execution validation failed for action %s", action.id
                         )
 
             else:
@@ -802,7 +802,7 @@ class RemediationExecutor:
             action.error_message = str(e)
             action.execution_time = execution_time
 
-            logger.error(f"Action {action.id} failed with exception: {e}")
+            logger.error("Action %s failed with exception: %s", action.id, e)
 
             return RemediationResult(
                 action_id=action.id,
@@ -816,7 +816,7 @@ class RemediationExecutor:
 
     async def _perform_rollback(self, action: RemediationAction) -> bool:
         """Perform rollback for a failed action."""
-        logger.info(f"Performing rollback for action: {action.id}")
+        logger.info("Performing rollback for action: %s", action.id)
 
         try:
             if not action.device.is_connected:
@@ -829,14 +829,14 @@ class RemediationExecutor:
 
             if success:
                 action.status = RemediationStatus.ROLLED_BACK
-                logger.info(f"Successfully rolled back action: {action.id}")
+                logger.info("Successfully rolled back action: %s", action.id)
             else:
-                logger.error(f"Rollback failed for action: {action.id}")
+                logger.error("Rollback failed for action: %s", action.id)
 
             return success
 
         except Exception as e:
-            logger.error(f"Rollback failed for action {action.id} with exception: {e}")
+            logger.error("Rollback failed for action %s with exception: %s", action.id, e)
             return False
 
     def _dependencies_satisfied(
@@ -880,7 +880,7 @@ class AutomatedRemediationManager:
         )
 
         logger.info(
-            f"Automated remediation completed. Success rate: {result.overall_success_rate:.1f}%"
+            "Automated remediation completed. Success rate: %.1f%%", result.overall_success_rate
         )
 
         return result

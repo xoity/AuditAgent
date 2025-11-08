@@ -47,12 +47,14 @@ class AIRemediationEngine:
         Returns:
             YAML string containing the remediation policy
         """
-        logger.info(f"Generating AI remediation policy for {audit_result.policy_name}")
+        logger.info("Generating AI remediation policy for %s", audit_result.policy_name)
 
         # Analyze audit results
         analysis = self.analyzer.analyze(audit_result)
         logger.debug(
-            f"Analyzed {analysis['total_issues']} issues across {len(analysis['devices'])} devices"
+            "Analyzed %s issues across %s devices",
+            analysis['total_issues'],
+            len(analysis['devices'])
         )
 
         # Convert original policy to YAML using proper serialization
@@ -72,10 +74,9 @@ class AIRemediationEngine:
 
         system_prompt = """You are an expert network security engineer specializing in firewall policy compliance.
 Your task is to generate corrected firewall policies that achieve 100% compliance.
-You understand iptables, network security best practices, and YAML policy formats.
-Always generate valid, complete YAML policies."""
+You understand iptables, network security best practices, and YAML policy formats."""
 
-        logger.info(f"Calling AI provider: {ai_provider.__class__.__name__}")
+        logger.info("Calling AI provider: %s", ai_provider.__class__.__name__)
         remediation_yaml = ai_provider.generate_text(
             prompt, system_prompt=system_prompt, temperature=temperature
         )
@@ -88,12 +89,13 @@ Always generate valid, complete YAML policies."""
             yaml.safe_load(remediation_yaml)
             logger.info("Generated valid YAML policy")
         except yaml.YAMLError as e:
-            logger.error(f"Generated invalid YAML: {e}")
+            logger.error("Generated invalid YAML: %s", e)
             raise ValueError(f"AI generated invalid YAML: {e}") from e
 
         return remediation_yaml
 
-    def _clean_yaml_response(self, response: str) -> str:
+    @classmethod
+    def _clean_yaml_response(cls, response: str) -> str:
         """Clean up AI response to extract pure YAML."""
         response = response.strip()
 
@@ -156,52 +158,52 @@ Always generate valid, complete YAML policies."""
 
         for iteration in range(max_iterations):
             logger.info(
-                f"Remediation iteration {iteration + 1}/{max_iterations} "
-                f"(current compliance: {best_compliance:.1f}%)"
+                "Remediation iteration %s/%s (current compliance: %.1f%%)",
+                iteration + 1,
+                max_iterations,
+                best_compliance
             )
 
             # Generate remediation policy
             remediation_yaml = self.generate_remediation_policy(
-                best_result, original_policy, provider=provider
+                audit_result, original_policy, provider
             )
 
             # Parse and validate
             try:
                 remediation_policy = NetworkPolicy.from_yaml(remediation_yaml)
             except Exception as e:
-                logger.warning(f"Failed to parse generated policy: {e}")
+                logger.warning("Failed to parse generated policy: %s", e)
                 # Show first 1000 chars to diagnose the issue
                 preview = (
                     remediation_yaml[:1000]
                     if len(remediation_yaml) > 1000
                     else remediation_yaml
                 )
-                logger.warning(f"Generated YAML content:\n{preview}")
+                logger.warning("Generated YAML content:\n%s", preview)
                 if iteration == max_iterations - 1:
                     if best_yaml:
                         return best_yaml, best_result
-                    # If we never got a valid policy, raise the error
-                    raise
+                    raise ValueError("Failed to generate valid policy") from e
                 continue
-
             # Audit the remediation policy
             try:
                 new_audit_result = asyncio.run(
                     self.audit_engine.audit_policy(remediation_policy, devices)
                 )
             except Exception as e:
-                logger.warning(f"Failed to audit remediation policy: {e}")
+                logger.warning("Failed to audit remediation policy: %s", e)
                 if iteration == max_iterations - 1:
                     if best_yaml:
                         return best_yaml, best_result
-                    raise
+                    raise ValueError("Failed to audit policy") from e
                 continue
-
             new_compliance = new_audit_result.overall_compliance_percentage
 
             logger.info(
-                f"Remediation policy compliance: {new_compliance:.1f}% "
-                f"(improvement: {new_compliance - best_compliance:+.1f}%)"
+                "Remediation policy compliance: %.1f%% (improvement: %+.1f%%)",
+                new_compliance,
+                new_compliance - best_compliance
             )
 
             # Check if we've improved
@@ -231,25 +233,24 @@ Always generate valid, complete YAML policies."""
                 audit_result, original_policy
             )
             fallback_yaml = fallback_policy.export_to_yaml()
-
-            # Audit the fallback policy
             fallback_audit = asyncio.run(
                 self.audit_engine.audit_policy(fallback_policy, devices)
             )
 
             logger.info(
-                f"Programmatic remediation compliance: {fallback_audit.overall_compliance_percentage:.1f}%"
+                "Programmatic remediation compliance: %.1f%%",
+                fallback_audit.overall_compliance_percentage
             )
-
             return fallback_yaml, fallback_audit
         except Exception as e:
-            logger.exception("Programmatic remediation failed")
-            raise RuntimeError(
+            logger.exception("Programmatic remediation also failed")
+            raise ValueError(
                 "Failed to generate a valid remediation policy after all iterations"
             ) from e
 
+    @classmethod
     def _programmatic_remediation_policy(
-        self, audit_result: PolicyAuditResult, original_policy: NetworkPolicy
+        cls, audit_result: PolicyAuditResult, original_policy: NetworkPolicy
     ) -> NetworkPolicy:
         """Create a conservative remediation policy programmatically.
 
@@ -284,9 +285,17 @@ Always generate valid, complete YAML policies."""
                         # Ensure the rule exists in fallback policy
                         rule = find_policy_rule(issue.rule_id, issue.rule_name)
                         if rule is None and issue.expected_config:
-                            # Try to construct from expected_config if it's a dict
-                            if isinstance(issue.expected_config, dict):
-                                new_rule = FirewallRule()
+                            # Create new rule from expected_config
+                            if hasattr(issue.expected_config, "model_dump"):
+                                new_rule = issue.expected_config
+                                fallback.add_firewall_rule(new_rule)
+                            elif isinstance(issue.expected_config, dict):
+                                # Create a new FirewallRule from dict
+                                new_rule = FirewallRule(
+                                    name=issue.rule_name or "auto-generated",
+                                    action="allow",
+                                    protocol="tcp",
+                                )
                                 # best-effort apply fields from dict
                                 for k, v in issue.expected_config.items():
                                     if hasattr(new_rule, k):
@@ -295,7 +304,7 @@ Always generate valid, complete YAML policies."""
                                         except Exception:
                                             # ignore non-assignable fields
                                             logger.debug(
-                                                f"Could not set {k} on rule {new_rule.name}"
+                                                "Could not set %s on rule %s", k, new_rule.name
                                             )
                                 fallback.add_firewall_rule(new_rule)
                         # If rule exists in original policy, ensure it's present (it already is)
@@ -314,7 +323,7 @@ Always generate valid, complete YAML policies."""
                                             setattr(rule, k, v)
                                         except Exception:
                                             logger.debug(
-                                                f"Could not set {k} on rule {rule.name}"
+                                                "Could not set %s on rule %s", k, rule.name
                                             )
                             elif isinstance(issue.expected_config, dict):
                                 for k, v in issue.expected_config.items():
@@ -323,28 +332,31 @@ Always generate valid, complete YAML policies."""
                                             setattr(rule, k, v)
                                         except Exception:
                                             logger.debug(
-                                                f"Could not set {k} on rule {rule.name}"
+                                                "Could not set %s on rule %s", k, rule.name
                                             )
 
                     # For extra_rule, document but do not remove
                 except Exception:
                     logger.exception(
-                        f"Failed to apply programmatic remediation for issue: {issue}"
+                        "Failed to apply programmatic remediation for issue: %s", issue
                     )
 
         return fallback
 
-    def save_remediation_policy(self, remediation_yaml: str, output_path: Path) -> None:
+    @staticmethod
+    def save_remediation_policy(remediation_yaml: str, output_path: Path) -> None:
         """Save remediation policy to a file."""
+        # Validate output_path is within expected boundaries
+        resolved_path = output_path.resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_path, "w") as f:
+        with open(resolved_path, "w") as f:
             f.write(remediation_yaml)
 
-        logger.info(f"Saved remediation policy to {output_path}")
+        logger.info("Saved remediation policy to %s", output_path)
 
+    @staticmethod
     def generate_summary_report(
-        self,
         original_result: PolicyAuditResult,
         remediation_result: PolicyAuditResult,
     ) -> str:

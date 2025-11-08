@@ -221,7 +221,7 @@ class EnforcementPlanner:
                 filtered_remove_actions.append(action)
             else:
                 logger.debug(
-                    f"Skipping Docker-related rule removal: {action.description}"
+                    "Skipping Docker-related rule removal: %s", action.description
                 )
 
         # Return prioritized actions: add, modify, then filtered removes
@@ -261,12 +261,12 @@ class EnforcementPlanner:
         """Create an enforcement action for a specific compliance issue."""
 
         logger.debug(
-            f"Creating action for issue: {issue.issue_type} - {issue.description}"
+            "Creating action for issue: %s - %s", issue.issue_type, issue.description
         )
 
         if issue.issue_type == "missing_rule":
             action = self.create_add_rule_action(policy, device, issue)
-            logger.debug(f"Created add action: {action is not None}")
+            logger.debug("Created add action: %s", action is not None)
             return action
         elif issue.issue_type == "extra_rule":
             return self.create_remove_rule_action(device, issue)
@@ -282,29 +282,29 @@ class EnforcementPlanner:
 
         # Find the policy rule that's missing
         logger.debug(
-            f"Looking for rule with ID: {issue.rule_id}, name: {issue.rule_name}"
+            "Looking for rule with ID: %s, name: %s", issue.rule_id, issue.rule_name
         )
         rule = self.find_policy_rule_by_id(policy, issue.rule_id)
         if not rule and issue.rule_name:
             logger.debug("ID lookup failed, trying name lookup")
             rule = self.find_policy_rule_by_name(policy, issue.rule_name)
-        logger.debug(f"Found rule: {rule is not None}")
+        logger.debug("Found rule: %s", rule is not None)
         if not rule:
             logger.debug("Rule not found, returning None")
             return None
 
         # Generate device commands for the rule
         logger.debug("Generating commands for rule")
-        logger.debug(f"Rule type: {type(rule).__name__}")
+        logger.debug("Rule type: %s", type(rule).__name__)
         logger.debug(
-            f"Rule name/id: {getattr(rule, 'name', getattr(rule, 'id', 'unknown'))}"
+            "Rule name/id: %s", getattr(rule, 'name', getattr(rule, 'id', 'unknown'))
         )
         if hasattr(rule, "__dict__"):
-            logger.debug(f"Rule dict: {rule.__dict__}")
+            logger.debug("Rule dict: %s", rule.__dict__)
 
         commands = device.rule_to_commands(rule)
 
-        logger.debug(f"Generated commands: {commands}")
+        logger.debug("Generated commands: %s", commands)
         if not commands:
             logger.debug("No commands generated, returning None")
             return None
@@ -404,8 +404,8 @@ class EnforcementPlanner:
     ) -> List[str]:
         """Generate commands to remove a rule (device-specific)."""
         logger.debug("Generating remove commands")
-        logger.debug(f"Device type: {type(device).__name__}")
-        logger.debug(f"Rule config: {rule_config}")
+        logger.debug("Device type: %s", type(device).__name__)
+        logger.debug("Rule config: %s", rule_config)
 
         # Handle iptables rules
         if (
@@ -421,7 +421,7 @@ class EnforcementPlanner:
 
                 delete_command = re.sub(r"\s+\d+\s+", " ", delete_command)
                 delete_command = f"iptables {delete_command}"
-                logger.debug(f"Generated iptables delete command: {delete_command}")
+                logger.debug("Generated iptables delete command: %s", delete_command)
                 return [delete_command]
 
             # Handle other iptables rule formats
@@ -429,20 +429,20 @@ class EnforcementPlanner:
                 # If it's already a full iptables command, convert to delete
                 if " -A " in rule_config:
                     delete_command = rule_config.replace(" -A ", " -D ", 1)
-                    logger.debug(f"Generated iptables delete command: {delete_command}")
+                    logger.debug("Generated iptables delete command: %s", delete_command)
                     return [delete_command]
                 else:
-                    logger.debug(f"Cannot generate delete command for: {rule_config}")
+                    logger.debug("Cannot generate delete command for: %s", rule_config)
                     return []
             else:
-                logger.debug(f"Unknown iptables rule format: {rule_config}")
+                logger.debug("Unknown iptables rule format: %s", rule_config)
                 return []
 
         # Handle Cisco-style rules
         elif "access-list" in rule_config:
             # For Cisco devices, use "no" prefix
             command = f"no {rule_config}"
-            logger.debug(f"Generated Cisco delete command: {command}")
+            logger.debug("Generated Cisco delete command: %s", command)
             return [command]
 
         logger.debug("No matching rule format found")
@@ -535,7 +535,7 @@ class EnhancedEnforcementEngine:
         if use_smart_remediation:
             # Use smart automated remediation
             logger.info(
-                f"Found {audit_result.total_issues} compliance issues. Starting automated remediation..."
+                "Found %s compliance issues. Starting automated remediation...", audit_result.total_issues
             )
             return await self.remediation_manager.auto_remediate(
                 policy, audit_result, dry_run=dry_run, stop_on_error=stop_on_error
@@ -565,7 +565,7 @@ class EnhancedEnforcementEngine:
         if validation_warnings and not dry_run:
             logger.warning("Validation warnings found:")
             for warning in validation_warnings:
-                logger.warning(f"  - {warning}")
+                logger.warning("  - %s", warning)
 
         # Execute actions
         device_results = []
@@ -632,11 +632,11 @@ class EnhancedEnforcementEngine:
                 await device.connect()
 
         # Execute actions in order
-        logger.debug(f"Processing {len(actions)} actions")
+        logger.debug("Processing %s actions", len(actions))
         for i, action in enumerate(actions):
-            logger.debug(f"Action {i + 1}: {action.action_type} - {action.description}")
-            logger.debug(f"Commands: {action.commands}")
-            logger.debug(f"Command count: {len(action.commands)}")
+            logger.debug("Action %s: %s - %s", i + 1, action.action_type, action.description)
+            logger.debug("Commands: %s", action.commands)
+            logger.debug("Command count: %s", len(action.commands))
 
             if not dry_run:
                 # Execute the action
