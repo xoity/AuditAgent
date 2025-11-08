@@ -142,7 +142,9 @@ class CredentialManager:
                 try:
                     # Create a temporary SSH client to test keys
                     client = paramiko.SSHClient()
-                    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                    # Load known hosts for secure host key verification
+                    client.load_system_host_keys()
+                    client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
                     client.connect(
                         hostname=host,

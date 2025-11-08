@@ -56,7 +56,9 @@ class LinuxIptables(FirewallDevice):
                 return False
 
             self._ssh_client = paramiko.SSHClient()
-            self._ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            # Load known hosts for secure host key verification
+            self._ssh_client.load_system_host_keys()
+            self._ssh_client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
             connect_kwargs = {
                 "hostname": self.connection.host,
@@ -103,8 +105,10 @@ class LinuxIptables(FirewallDevice):
                         # Create fresh SSH client for next attempt
                         self._ssh_client.close()
                         self._ssh_client = paramiko.SSHClient()
+                        # Load known hosts for secure host key verification
+                        self._ssh_client.load_system_host_keys()
                         self._ssh_client.set_missing_host_key_policy(
-                            paramiko.AutoAddPolicy()
+                            paramiko.RejectPolicy()
                         )
                 else:
                     logger.warning(
@@ -184,8 +188,10 @@ class LinuxIptables(FirewallDevice):
                         # Create fresh SSH client
                         self._ssh_client.close()
                         self._ssh_client = paramiko.SSHClient()
+                        # Load known hosts for secure host key verification
+                        self._ssh_client.load_system_host_keys()
                         self._ssh_client.set_missing_host_key_policy(
-                            paramiko.AutoAddPolicy()
+                            paramiko.RejectPolicy()
                         )
 
                         connect_kwargs = {
