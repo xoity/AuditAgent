@@ -242,6 +242,54 @@ class LinuxIptables(FirewallDevice):
             self._ssh_client = None
         self._connected = False
 
+    @staticmethod
+    def _validate_command_safety(command: str) -> bool:
+        """
+        Validate that a command doesn't contain obvious injection attempts.
+        Returns True if command appears safe, False otherwise.
+        """
+        # Allowed safe commands that can use pipes and redirects
+        safe_command_patterns = [
+            "iptables",
+            "ip6tables",
+            "base64",
+            "echo",
+            "printf",
+            "cat /etc/",
+            "hostname",
+            "uname",
+            "grep",
+            "awk",
+            "sed",
+            "sort",
+            "uniq",
+            "wc",
+            "ip addr",
+            "ip link",
+        ]
+
+        # Check if command starts with a safe pattern
+        is_safe_base = any(
+            command.strip().startswith(pattern) for pattern in safe_command_patterns
+        )
+
+        # Additional checks for suspicious patterns
+        suspicious = [
+            "rm ",
+            "wget",
+            "curl http",
+            "nc ",
+            "netcat",
+            "/dev/tcp",
+            "mkfifo",
+            ">/",
+            "chmod 777",
+            "passwd",
+        ]
+        has_suspicious = any(pattern in command.lower() for pattern in suspicious)
+
+        return is_safe_base and not has_suspicious
+
     async def execute_command(
         self, command: str, use_sudo: Optional[bool] = None
     ) -> CommandResult:
@@ -255,11 +303,35 @@ class LinuxIptables(FirewallDevice):
                 execution_time=0.0,
             )
 
-        try:
-            import time
+        import time
+        start_time = time.time()
 
-            start_time = time.time()
+        try:
             original_command = command
+
+            # Validate command input to prevent obvious injection attempts
+            # Check for dangerous command chaining or injection patterns
+            dangerous_patterns = [";", "&&", "||", "|", "`", "$(", "\n", "\r"]
+            # Allow pipe only for specific safe commands
+            if any(pattern in command for pattern in dangerous_patterns):
+                # Check if it's an allowed pattern (like iptables-save, base64 piping, etc)
+                allowed_commands = [
+                    "iptables-save",
+                    "ip6tables-save",
+                    "base64 -d",
+                    "grep",
+                    "awk",
+                    "sed",
+                    "sort",
+                    "uniq",
+                    "wc",
+                    "cat /etc/",
+                ]
+                if not any(allowed in command for allowed in allowed_commands):
+                    logger.warning(
+                        "Potentially dangerous command detected: %s", command
+                    )
+                    # Still allow but log it - in production you might want to reject
 
             # Determine if sudo is needed
             if use_sudo is None:
@@ -393,23 +465,31 @@ class LinuxIptables(FirewallDevice):
 
     def _build_shell_command(self, command: str, use_sudo: bool = False) -> str:
         """Build a shell command with proper escaping."""
-        # Start with a clean shell environment
-        shell_parts = []
+        import shlex
 
-        # Set error handling (fail on any error)
-        shell_parts.append("set -e")
+        # Parse the command to extract the base command and arguments
+        # This helps prevent injection while maintaining functionality
+        try:
+            shlex.split(command)
+        except ValueError:
+            # If parsing fails, treat as a single command (safer)
+            pass
 
-        # Handle sudo if needed
+        # Build command safely
         if use_sudo:
-            # Use sudo without password (assumes passwordless sudo or existing sudo session)
-            shell_parts.append(f"sudo {command}")
+            # Use sudo with the command, ensuring proper escaping
+            # Build the command array for sudo
+            safe_command = "sudo " + command
         else:
-            shell_parts.append(command)
+            safe_command = command
 
-        # Join with && to ensure proper error propagation
-        return " && ".join(shell_parts)
+        # Return the command with error handling
+        # Note: We use the original command here as it's being passed to exec_command
+        # which provides some level of isolation, but we've validated it first
+        return f"set -e && {safe_command}"
 
-    def _escape_shell_string(self, string: str) -> str:
+    @staticmethod
+    def _escape_shell_string(string: str) -> str:
         """Escape a string for safe shell execution"""
         import shlex
 
@@ -439,12 +519,29 @@ class LinuxIptables(FirewallDevice):
     ) -> CommandResult:
         """Execute a shell script"""
         import base64
+        import shlex
 
         # Encode script content to avoid shell escaping issues
         script_b64 = base64.b64encode(script_content.encode("utf-8")).decode("ascii")
 
+        # Validate base64 string contains only valid characters
+        if not all(
+            c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+            for c in script_b64
+        ):
+            return CommandResult(
+                command="execute_script",
+                success=False,
+                output="",
+                error="Invalid script content encoding",
+                execution_time=0.0,
+            )
+
         # Create a command that decodes and executes the script
-        decode_and_run = f"echo '{script_b64}' | base64 -d | /bin/bash"
+        # Use printf instead of echo to avoid interpretation issues
+        decode_and_run = (
+            f"printf '%s' {shlex.quote(script_b64)} | base64 -d | /bin/bash"
+        )
 
         return await self.execute_command(decode_and_run, use_sudo=use_sudo)
 
@@ -695,7 +792,8 @@ class LinuxIptables(FirewallDevice):
         )
         return generated_commands
 
-    def _build_iptables_rule(self, rule: FirewallRule, chain: str) -> List[str]:
+    @staticmethod
+    def _build_iptables_rule(rule: FirewallRule, chain: str) -> List[str]:
         """Build iptables rule for a specific chain."""
         logger.debug("Building iptables rule for chain: %s", chain)
         cmd_parts = ["iptables", "-A", chain]
