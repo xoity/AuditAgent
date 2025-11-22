@@ -5,9 +5,11 @@ Command-line interface for AuditAgent.
 import asyncio
 import json
 import os
+import time
 from pathlib import Path
 from typing import List, Optional
 
+import requests
 import typer
 import yaml
 from rich.console import Console
@@ -17,6 +19,7 @@ from .audit.engine import AuditEngine
 from .core.logging_config import get_logger
 from .core.policy import NetworkPolicy
 from .core.rules import FirewallRule
+from .core.token import TokenManager
 from .devices.linux_iptables import LinuxIptables
 from .enforcement.engine import EnforcementEngine
 from .enforcement.remediation import RemediationStrategy
@@ -233,6 +236,140 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 logger = get_logger(__name__)
+token_manager = TokenManager()
+
+
+@app.command()
+def login(
+    api_url: str = typer.Option(
+        "http://localhost:8000",
+        "--api-url",
+        help="API server URL"
+    ),
+):
+    """
+    Authenticate with AuditAgent UI.
+    
+    This will open a browser for you to log in and authorize this CLI instance.
+    Similar to 'semgrep login'.
+    """
+    console.print("[bold blue]🔐 AuditAgent Login[/bold blue]\n")
+    
+    # Step 1: Request device code
+    console.print("Requesting authentication code...")
+    
+    try:
+        response = requests.post(f"{api_url}/api/device/code", timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as e:
+        console.print(f"[red]✗ Failed to connect to API: {e}[/red]")
+        console.print(f"[red]  Make sure the AuditAgent UI is running at {api_url}[/red]")
+        raise typer.Exit(1)
+    
+    device_code = data["device_code"]
+    user_code = data["user_code"]
+    verification_uri = data["verification_uri"]
+    expires_in = data["expires_in"]
+    interval = data.get("interval", 5)
+    
+    # Step 2: Display instructions
+    console.print("\n[bold yellow]To authenticate:[/bold yellow]")
+    console.print(f"  1. Open this URL in your browser: [cyan]{verification_uri}[/cyan]")
+    console.print(f"  2. Enter this code: [bold green]{user_code}[/bold green]")
+    console.print(f"\n[dim]Waiting for you to complete authentication...[/dim]")
+    console.print(f"[dim]Code expires in {expires_in} seconds[/dim]\n")
+    
+    # Try to open browser automatically
+    try:
+        import webbrowser
+        webbrowser.open(verification_uri)
+        console.print("[dim]✓ Opened browser automatically[/dim]\n")
+    except Exception:
+        pass
+    
+    # Step 3: Poll for token
+    start_time = time.time()
+    
+    with console.status("[bold green]Waiting for authorization...") as status:
+        while True:
+            elapsed = time.time() - start_time
+            
+            if elapsed > expires_in:
+                console.print("[red]✗ Authentication timed out. Please try again.[/red]")
+                raise typer.Exit(1)
+            
+            time.sleep(interval)
+            
+            try:
+                token_response = requests.post(
+                    f"{api_url}/api/device/token",
+                    json={"device_code": device_code},
+                    timeout=10
+                )
+                
+                if token_response.status_code == 200:
+                    token_data = token_response.json()
+                    access_token = token_data["access_token"]
+                    
+                    # Save token
+                    token_manager.save_token(access_token, api_url)
+                    
+                    console.print("\n[bold green]✓ Authentication successful![/bold green]")
+                    console.print(f"[dim]Token saved to {token_manager.config_file}[/dim]\n")
+                    console.print("[bold]You can now use AuditAgent CLI with the UI.[/bold]")
+                    return
+                elif token_response.status_code == 400:
+                    error_data = token_response.json()
+                    error = error_data.get("error", "unknown")
+                    
+                    if error == "expired_token":
+                        console.print("[red]✗ Authentication code expired. Please try again.[/red]")
+                        raise typer.Exit(1)
+                    elif error == "invalid_request":
+                        console.print("[red]✗ Invalid request. Please try again.[/red]")
+                        raise typer.Exit(1)
+                    # authorization_pending - continue polling
+                else:
+                    console.print(f"[red]✗ Unexpected response: {token_response.status_code}[/red]")
+                    raise typer.Exit(1)
+                    
+            except requests.RequestException as e:
+                console.print(f"[red]✗ Connection error: {e}[/red]")
+                raise typer.Exit(1)
+
+
+@app.command()
+def logout():
+    """Remove stored authentication token."""
+    console.print("[bold blue]Logging out...[/bold blue]")
+    token_manager.clear_token()
+    console.print("[green]✓ Logged out successfully[/green]")
+
+
+@app.command()
+def whoami(
+    api_url: str = typer.Option(
+        None,
+        "--api-url",
+        help="API server URL (defaults to saved URL)"
+    ),
+):
+    """Display current authentication status."""
+    token = token_manager.get_token()
+    saved_api_url = token_manager.get_api_url()
+    
+    if api_url is None:
+        api_url = saved_api_url
+    
+    if not token:
+        console.print("[yellow]Not authenticated. Run 'auditagent login' to authenticate.[/yellow]")
+        raise typer.Exit(1)
+    
+    console.print(f"[bold]Authentication Status:[/bold]")
+    console.print(f"  API URL: [cyan]{api_url}[/cyan]")
+    console.print(f"  Token: [green]{'*' * 20}{token[-8:]}[/green]")
+    console.print(f"  Config: [dim]{token_manager.config_file}[/dim]")
 
 
 # we need to implement this method for later
