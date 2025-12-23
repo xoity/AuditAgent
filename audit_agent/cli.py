@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import time
+import webbrowser
 from pathlib import Path
 from typing import List, Optional
 
@@ -259,7 +260,7 @@ def login(
     console.print("Requesting authentication code...")
 
     try:
-        response = requests.post(f"{api_url}/api/device/code/", timeout=10)
+        response = requests.post(f"{api_url}/api/auth/device/code", timeout=10)
         response.raise_for_status()
         data = response.json()
     except requests.RequestException as e:
@@ -303,8 +304,11 @@ def login(
 
             try:
                 token_response = requests.post(
-                    f"{api_url}/api/device/token/",
-                    json={"device_code": device_code},
+                    f"{api_url}/api/auth/token",
+                    json={
+                        "device_code": device_code,
+                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
+                    },
                     timeout=10
                 )
 
@@ -331,8 +335,8 @@ def login(
                         raise typer.Exit(1)
                     # authorization_pending - continue polling
                 else:
-                    console.print(f"[red]✗ Unexpected response: {token_response.status_code}[/red]")
-                    raise typer.Exit(1)
+                    # Just continue polling if it's not a 200 or known 400 error
+                    pass
 
             except requests.RequestException as e:
                 console.print(f"[red]✗ Connection error: {e}[/red]")
@@ -1699,6 +1703,9 @@ def display_remediation_summary(result):
         console.print(
             "\n[green]✅ All remediation actions completed successfully![/green]"
         )
+
+
+
 
 
 def display_policy_summary(policy: NetworkPolicy):
