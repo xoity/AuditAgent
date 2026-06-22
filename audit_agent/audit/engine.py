@@ -247,12 +247,7 @@ class RuleComparer:
             if ip_str == "0.0.0.0/0":
                 # For "any" source, either -s 0.0.0.0/0 should be present OR no -s flag at all
                 source_check = f"-s {ip_str}"
-                if source_check not in device_content and "-s " not in device_content:
-                    # No source restriction means it accepts from any source (0.0.0.0/0)
-                    logger.debug(
-                        "Source IP 0.0.0.0/0 (any) matches - no source restriction in device rule"
-                    )
-                else:
+                if source_check not in device_content and "-s " in device_content:
                     logger.debug(
                         "Source IP mismatch: expected %s not found in device rule",
                         source_check,
