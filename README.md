@@ -7,6 +7,7 @@
 - [Features](#features)
 - [Getting Started](#getting-started)
 - [Automated Remediation](#automated-remediation)
+- [Deterministic Sandbox Testing](#deterministic-sandbox-testing)
 - [Configuration Guide](#configuration-guide)
 - [Secure Authentication](#secure-authentication)
 - [Examples](#examples)
@@ -81,6 +82,43 @@ audit-agent auto-remediate --help
 ```
 
 For complete documentation, see [Automated Remediation Guide](docs/AUTOMATED_REMEDIATION.md).
+
+## Deterministic Sandbox Testing
+
+Use the persistent sandbox backend for repeatable audit/enforce tests without a VM, SSH target, or local firewall changes.
+
+```bash
+# reset sandbox state
+rm -f .audit-agent/sandbox-42.json
+
+# run against the deterministic sandbox
+audit-agent audit examples/simple-linux-policy.yaml examples/sandbox-devices.yaml
+audit-agent enforce --dry-run examples/simple-linux-policy.yaml examples/sandbox-devices.yaml
+audit-agent enforce --no-dry-run examples/simple-linux-policy.yaml examples/sandbox-devices.yaml
+
+# verify idempotency
+audit-agent enforce --no-dry-run examples/simple-linux-policy.yaml examples/sandbox-devices.yaml
+```
+
+What this gives you:
+
+- `audit` starts with missing rules and shows drift
+- `--dry-run` validates planned changes without mutating sandbox state
+- live `enforce` applies changes to the persistent sandbox file
+- a second live `enforce` stays clean and creates no duplicate rules
+- rollback is covered by the test suite through a forced failure path
+
+Run the dedicated test:
+
+```bash
+rtk pytest tests/test_sandbox_enforcement.py -vv
+```
+
+Run the full suite:
+
+```bash
+rtk pytest tests -vv
+```
 
 ## Configuration Guide
 
