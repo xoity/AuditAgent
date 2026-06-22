@@ -1,0 +1,6 @@
+devices:
+  - name: deterministic-sandbox
+    type: simulated_iptables
+    host: sandbox-42.local
+    seed: 42
+    state_file: .audit-agent/sandbox-42.json

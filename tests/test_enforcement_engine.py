@@ -106,6 +106,33 @@ class TestEnforcementEngine:
 
         assert result.success_rate == 100.0  # No actions executed = 100% success
 
+    @pytest.mark.asyncio
+    async def test_dry_run_validation_reports_per_command(self):
+        """Test dry-run validation reports command-specific failures."""
+        engine = EnforcementEngine()
+        device = LinuxIptables(host="192.168.1.10", username="admin", password="secret")
+
+        action = EnforcementAction(
+            device=device,
+            rule=FirewallRule(name="test"),
+            action_type="add",
+            commands=[
+                "iptables -A INPUT -p tcp --dport 22 -j ACCEPT",
+                "not-iptables -A INPUT -p tcp --dport 22 -j ACCEPT",
+            ],
+            description="Validate mixed commands",
+            risk_level="medium",
+        )
+
+        result = await engine.enforce_device(device, [action], dry_run=True)
+
+        assert result.actions_validated == 0
+        assert result.actions_validation_failed == 1
+        assert result.command_results[0].success is True
+        assert result.command_results[0].error is None
+        assert result.command_results[1].success is False
+        assert "Command must start with 'iptables'" in result.command_results[1].error
+
     def test_policy_enforcement_result_creation(self):
         """Test creating policy enforcement results."""
         result = PolicyEnforcementResult(

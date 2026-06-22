@@ -6,7 +6,7 @@ import datetime
 from dataclasses import dataclass
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..audit.engine import AuditEngine, ComplianceIssue, PolicyAuditResult
 from ..core.logging_config import get_logger
@@ -45,13 +45,25 @@ class DeviceEnforcementResult:
     actions_failed: int
     command_results: List[CommandResult]
     enforcement_timestamp: str
+    actions_validated: int = 0
+    actions_validation_failed: int = 0
+    rollback_performed: bool = False
+    rollback_error: Optional[str] = None
 
     @property
     def success_rate(self) -> float:
         """Calculate the success rate of enforcement actions."""
-        if self.actions_executed == 0:
+        processed_actions = self.actions_executed
+        if processed_actions == 0 and (
+            self.actions_validated or self.actions_validation_failed
+        ):
+            processed_actions = self.actions_validated + self.actions_validation_failed
+        if processed_actions == 0:
             return 100.0
-        return (self.actions_successful / self.actions_executed) * 100
+        successful_actions = self.actions_successful
+        if successful_actions == 0 and self.actions_validated:
+            successful_actions = self.actions_validated
+        return (successful_actions / processed_actions) * 100
 
 
 class PolicyEnforcementResult(BaseModel):
@@ -65,7 +77,9 @@ class PolicyEnforcementResult(BaseModel):
     total_actions_executed: int
     total_actions_successful: int
     total_actions_failed: int
-    device_results: List[DeviceEnforcementResult] = []
+    total_actions_validated: int = 0
+    total_actions_validation_failed: int = 0
+    device_results: List[DeviceEnforcementResult] = Field(default_factory=list)
     overall_success_rate: float
     enforcement_timestamp: str
     dry_run: bool
@@ -73,7 +87,9 @@ class PolicyEnforcementResult(BaseModel):
     @property
     def is_successful(self) -> bool:
         """Check if enforcement was completely successful."""
-        return self.total_actions_failed == 0
+        return (
+            self.total_actions_failed == 0 and self.total_actions_validation_failed == 0
+        )
 
 
 class PreflightValidator:
@@ -576,6 +592,8 @@ class EnhancedEnforcementEngine:
         total_actions_executed = 0
         total_actions_successful = 0
         total_actions_failed = 0
+        total_actions_validated = 0
+        total_actions_validation_failed = 0
 
         # Group actions by device
         device_actions = {}
@@ -595,11 +613,21 @@ class EnhancedEnforcementEngine:
             total_actions_executed += device_result.actions_executed
             total_actions_successful += device_result.actions_successful
             total_actions_failed += device_result.actions_failed
+            total_actions_validated += device_result.actions_validated
+            total_actions_validation_failed += device_result.actions_validation_failed
 
         # Calculate overall success rate
+        total_actions_processed = (
+            total_actions_validated + total_actions_validation_failed
+            if dry_run
+            else total_actions_executed
+        )
+        total_actions_passed = (
+            total_actions_validated if dry_run else total_actions_successful
+        )
         overall_success_rate = (
-            (total_actions_successful / total_actions_executed * 100)
-            if total_actions_executed > 0
+            (total_actions_passed / total_actions_processed * 100)
+            if total_actions_processed > 0
             else 100
         )
 
@@ -610,6 +638,8 @@ class EnhancedEnforcementEngine:
             total_actions_executed=total_actions_executed,
             total_actions_successful=total_actions_successful,
             total_actions_failed=total_actions_failed,
+            total_actions_validated=total_actions_validated,
+            total_actions_validation_failed=total_actions_validation_failed,
             device_results=device_results,
             overall_success_rate=overall_success_rate,
             enforcement_timestamp=datetime.datetime.now().isoformat(),
@@ -628,11 +658,41 @@ class EnhancedEnforcementEngine:
         actions_executed = 0
         actions_successful = 0
         actions_failed = 0
+        actions_validated = 0
+        actions_validation_failed = 0
+        rollback_performed = False
+        rollback_error = None
+        backup = None
 
         if not dry_run:
             # Ensure device is connected
             if not device.is_connected:
                 await device.connect()
+
+            if actions and hasattr(device, "restore_configuration"):
+                try:
+                    backup = await device.backup_configuration()
+                except Exception as exc:
+                    rollback_error = f"Could not create rollback snapshot: {exc}"
+                    command_results.append(
+                        CommandResult(
+                            command="backup_configuration",
+                            success=False,
+                            output="",
+                            error=rollback_error,
+                            execution_time=0.0,
+                        )
+                    )
+                    return DeviceEnforcementResult(
+                        device=device,
+                        actions_planned=len(actions),
+                        actions_executed=0,
+                        actions_successful=0,
+                        actions_failed=1,
+                        command_results=command_results,
+                        enforcement_timestamp=datetime.datetime.now().isoformat(),
+                        rollback_error=rollback_error,
+                    )
 
         # Execute actions in order
         logger.debug("Processing %s actions", len(actions))
@@ -656,20 +716,33 @@ class EnhancedEnforcementEngine:
                     actions_successful += 1
                 else:
                     actions_failed += 1
+                    if backup is not None:
+                        rollback_result = await device.restore_configuration(backup)
+                        command_results.append(rollback_result)
+                        rollback_performed = rollback_result.success
+                        rollback_error = rollback_result.error
+                    break
             else:
-                # Dry run - simulate the action
+                action_valid = True
+
                 for command in action.commands:
+                    command_errors = action.device.validate_commands([command])
+                    command_valid = not command_errors
+                    action_valid = action_valid and command_valid
                     command_results.append(
                         CommandResult(
                             command=command,
-                            success=True,
-                            output=f"DRY RUN: Would execute: {command}",
+                            success=command_valid,
+                            output=f"DRY RUN: Would validate: {command}",
+                            error="; ".join(command_errors) if command_errors else None,
                             execution_time=0.0,
                         )
                     )
 
-                actions_executed += 1
-                actions_successful += 1
+                if action_valid:
+                    actions_validated += 1
+                else:
+                    actions_validation_failed += 1
 
         return DeviceEnforcementResult(
             device=device,
@@ -679,6 +752,10 @@ class EnhancedEnforcementEngine:
             actions_failed=actions_failed,
             command_results=command_results,
             enforcement_timestamp=datetime.datetime.now().isoformat(),
+            actions_validated=actions_validated,
+            actions_validation_failed=actions_validation_failed,
+            rollback_performed=rollback_performed,
+            rollback_error=rollback_error,
         )
 
     def _convert_traditional_to_remediation_result(
@@ -791,13 +868,22 @@ class EnforcementEngine(EnhancedEnforcementEngine):
         report.append(f"Policy: {result.policy_name}")
         report.append(f"Enforcement Date: {result.enforcement_timestamp}")
         report.append(f"Mode: {'DRY RUN' if result.dry_run else 'LIVE ENFORCEMENT'}")
-        report.append(f"Overall Success Rate: {result.overall_success_rate:.1f}%")
+        rate_label = (
+            "Overall Validation Rate" if result.dry_run else "Overall Success Rate"
+        )
+        report.append(f"{rate_label}: {result.overall_success_rate:.1f}%")
         report.append("")
         report.append(f"Devices Processed: {result.devices_processed}")
         report.append(f"Total Actions Planned: {result.total_actions_planned}")
-        report.append(f"Total Actions Executed: {result.total_actions_executed}")
-        report.append(f"Successful Actions: {result.total_actions_successful}")
-        report.append(f"Failed Actions: {result.total_actions_failed}")
+        if result.dry_run:
+            report.append(f"Total Actions Validated: {result.total_actions_validated}")
+            report.append(
+                f"Validation Failures: {result.total_actions_validation_failed}"
+            )
+        else:
+            report.append(f"Total Actions Executed: {result.total_actions_executed}")
+            report.append(f"Successful Actions: {result.total_actions_successful}")
+            report.append(f"Failed Actions: {result.total_actions_failed}")
         report.append("")
 
         # Device details
@@ -806,13 +892,31 @@ class EnforcementEngine(EnhancedEnforcementEngine):
 
         for device_result in result.device_results:
             report.append(f"Device: {device_result.device}")
-            report.append(f"  Success Rate: {device_result.success_rate:.1f}%")
-            report.append(f"  Actions Executed: {device_result.actions_executed}")
-            report.append(f"  Successful: {device_result.actions_successful}")
-            report.append(f"  Failed: {device_result.actions_failed}")
+            if result.dry_run:
+                report.append(f"  Validation Rate: {device_result.success_rate:.1f}%")
+                report.append(f"  Actions Planned: {device_result.actions_planned}")
+                report.append(f"  Actions Validated: {device_result.actions_validated}")
+                report.append(
+                    f"  Validation Failed: {device_result.actions_validation_failed}"
+                )
+            else:
+                report.append(f"  Success Rate: {device_result.success_rate:.1f}%")
+                report.append(f"  Actions Executed: {device_result.actions_executed}")
+                report.append(f"  Successful: {device_result.actions_successful}")
+                report.append(f"  Failed: {device_result.actions_failed}")
+                if device_result.rollback_performed:
+                    report.append("  Rollback: restored pre-enforcement snapshot")
+                elif device_result.rollback_error:
+                    report.append(f"  Rollback failed: {device_result.rollback_error}")
 
-            if device_result.actions_failed > 0:
-                report.append("  Failed Commands:")
+            if device_result.actions_failed > 0 or (
+                result.dry_run and device_result.actions_validation_failed > 0
+            ):
+                report.append(
+                    "  Failed Validation Commands:"
+                    if result.dry_run
+                    else "  Failed Commands:"
+                )
                 for cmd_result in device_result.command_results:
                     if not cmd_result.success:
                         report.append(f"    - {cmd_result.command}: {cmd_result.error}")

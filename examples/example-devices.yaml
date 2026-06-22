@@ -1,8 +1,8 @@
 devices:
   - type: "linux_iptables"
     name: "web-server-01"
-    host: "192.168.2.135"
-    port: 22
+    host: "127.0.0.1"
+    port: 2200
     username: "vagrant"
     private_key: "~/.ssh/id_rsa"
     description: "Primary web server"
