@@ -304,6 +304,7 @@ class LinuxIptables(FirewallDevice):
             )
 
         import time
+
         start_time = time.time()
 
         try:
@@ -569,6 +570,51 @@ class LinuxIptables(FirewallDevice):
             raw_config=raw_config,
             parsed_items=parsed_items,
             timestamp=datetime.datetime.now().isoformat(),
+        )
+
+    async def backup_configuration(self) -> str:
+        """Snapshot IPv4 and IPv6 rules for transactional enforcement."""
+        import json
+
+        ipv4 = await self.execute_command("iptables-save")
+        ipv6 = await self.execute_command("ip6tables-save")
+        if not ipv4.success or not ipv6.success:
+            errors = [result.error for result in (ipv4, ipv6) if not result.success]
+            raise RuntimeError(
+                "; ".join(error or "snapshot failed" for error in errors)
+            )
+        return json.dumps({"ipv4": ipv4.output, "ipv6": ipv6.output})
+
+    async def restore_configuration(self, backup: str) -> CommandResult:
+        """Restore snapshot created by backup_configuration."""
+        import base64
+        import json
+
+        snapshots = json.loads(backup)
+        results = []
+        for family, command in (
+            ("ipv4", "iptables-restore"),
+            ("ipv6", "ip6tables-restore"),
+        ):
+            encoded = base64.b64encode(snapshots[family].encode()).decode()
+            results.append(
+                await self.execute_command(
+                    f"printf '%s' '{encoded}' | base64 -d | sudo {command}",
+                    use_sudo=False,
+                )
+            )
+        success = all(result.success for result in results)
+        return CommandResult(
+            command="restore_configuration",
+            success=success,
+            output="Rollback snapshot restored" if success else "",
+            error="; ".join(
+                result.error or "restore failed"
+                for result in results
+                if not result.success
+            )
+            or None,
+            execution_time=sum(result.execution_time for result in results),
         )
 
     async def get_device_info(self) -> DeviceInfo:
