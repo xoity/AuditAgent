@@ -6,7 +6,6 @@ import asyncio
 import json
 import os
 import time
-import webbrowser
 from pathlib import Path
 from typing import List, Optional
 
@@ -22,6 +21,7 @@ from .core.policy import NetworkPolicy
 from .core.rules import FirewallRule
 from .core.token import TokenManager
 from .devices.linux_iptables import LinuxIptables
+from .devices.simulated_iptables import SimulatedLinuxIptables
 from .enforcement.engine import EnforcementEngine
 from .enforcement.remediation import RemediationStrategy
 
@@ -245,7 +245,7 @@ def login(
     api_url: str = typer.Option(
         "http://localhost:8000",
         "--api-url",
-        help="API server URL"
+        help="API server URL",
     ),
 ):
     """
@@ -265,7 +265,9 @@ def login(
         data = response.json()
     except requests.RequestException as e:
         console.print(f"[red]✗ Failed to connect to API: {e}[/red]")
-        console.print(f"[red]  Make sure the AuditAgent UI is running at {api_url}[/red]")
+        console.print(
+            f"[red]  Make sure the AuditAgent UI is running at {api_url}[/red]"
+        )
         raise typer.Exit(1)
 
     device_code = data["device_code"]
@@ -276,7 +278,9 @@ def login(
 
     # Step 2: Display instructions
     console.print("\n[bold yellow]To authenticate:[/bold yellow]")
-    console.print(f"  1. Open this URL in your browser: [cyan]{verification_uri}[/cyan]")
+    console.print(
+        f"  1. Open this URL in your browser: [cyan]{verification_uri}[/cyan]"
+    )
     console.print(f"  2. Enter this code: [bold green]{user_code}[/bold green]")
     console.print("\n[dim]Waiting for you to complete authentication...[/dim]")
     console.print(f"[dim]Code expires in {expires_in} seconds[/dim]\n")
@@ -284,20 +288,23 @@ def login(
     # Try to open browser automatically
     try:
         import webbrowser
+
         webbrowser.open(verification_uri)
         console.print("[dim]✓ Opened browser automatically[/dim]\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Failed to open browser automatically: %s", exc)
 
     # Step 3: Poll for token
     start_time = time.time()
 
-    with console.status("[bold green]Waiting for authorization...") as status:
+    with console.status("[bold green]Waiting for authorization..."):
         while True:
             elapsed = time.time() - start_time
 
             if elapsed > expires_in:
-                console.print("[red]✗ Authentication timed out. Please try again.[/red]")
+                console.print(
+                    "[red]✗ Authentication timed out. Please try again.[/red]"
+                )
                 raise typer.Exit(1)
 
             time.sleep(interval)
@@ -307,9 +314,9 @@ def login(
                     f"{api_url}/api/auth/token",
                     json={
                         "device_code": device_code,
-                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
+                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                     },
-                    timeout=10
+                    timeout=10,
                 )
 
                 if token_response.status_code == 200:
@@ -319,16 +326,24 @@ def login(
                     # Save token
                     token_manager.save_token(access_token, api_url)
 
-                    console.print("\n[bold green]✓ Authentication successful![/bold green]")
-                    console.print(f"[dim]Token saved to {token_manager.config_file}[/dim]\n")
-                    console.print("[bold]You can now use AuditAgent CLI with the UI.[/bold]")
+                    console.print(
+                        "\n[bold green]✓ Authentication successful![/bold green]"
+                    )
+                    console.print(
+                        f"[dim]Token saved to {token_manager.config_file}[/dim]\n"
+                    )
+                    console.print(
+                        "[bold]You can now use AuditAgent CLI with the UI.[/bold]"
+                    )
                     return
                 elif token_response.status_code == 400:
                     error_data = token_response.json()
                     error = error_data.get("error", "unknown")
 
                     if error == "expired_token":
-                        console.print("[red]✗ Authentication code expired. Please try again.[/red]")
+                        console.print(
+                            "[red]✗ Authentication code expired. Please try again.[/red]"
+                        )
                         raise typer.Exit(1)
                     elif error == "invalid_request":
                         console.print("[red]✗ Invalid request. Please try again.[/red]")
@@ -354,9 +369,7 @@ def logout():
 @app.command()
 def whoami(
     api_url: str = typer.Option(
-        None,
-        "--api-url",
-        help="API server URL (defaults to saved URL)"
+        None, "--api-url", help="API server URL (defaults to saved URL)"
     ),
 ):
     """Display current authentication status."""
@@ -367,7 +380,9 @@ def whoami(
         api_url = saved_api_url
 
     if not token:
-        console.print("[yellow]Not authenticated. Run 'auditagent login' to authenticate.[/yellow]")
+        console.print(
+            "[yellow]Not authenticated. Run 'auditagent login' to authenticate.[/yellow]"
+        )
         raise typer.Exit(1)
 
     console.print("[bold]Authentication Status:[/bold]")
@@ -1595,7 +1610,15 @@ def load_devices(devices_file: Path) -> List:
         device_type = device_config.get("type", "").lower()
         logger.debug("Device type: %s", device_type)
 
-        if device_type == "linux_iptables":
+        if device_type == "simulated_iptables":
+            device = SimulatedLinuxIptables(
+                host=device_config.get("host", "sandbox.local"),
+                state_file=device_config["state_file"],
+                seed=device_config.get("seed", 0),
+                fail_on_command=device_config.get("fail_on_command"),
+            )
+            devices.append(device)
+        elif device_type == "linux_iptables":
             logger.debug("Creating LinuxIptables device...")
 
             # Check for deprecated hardcoded credentials
@@ -1625,7 +1648,9 @@ def load_devices(devices_file: Path) -> List:
             console.print(
                 f"[yellow]Warning: Unsupported device type: {device_type}[/yellow]"
             )
-            console.print("[yellow]Supported types: linux_iptables[/yellow]")
+            console.print(
+                "[yellow]Supported types: linux_iptables, simulated_iptables[/yellow]"
+            )
 
     logger.debug("Total devices loaded: %s", len(devices))
     return devices
@@ -1659,12 +1684,19 @@ def display_enforcement_summary(result):
     table.add_column("Value", style="white")
 
     table.add_row("Mode", "DRY RUN" if result.dry_run else "LIVE")
-    table.add_row("Overall Success Rate", f"{result.overall_success_rate:.1f}%")
+    rate_label = "Overall Validation Rate" if result.dry_run else "Overall Success Rate"
+    table.add_row(rate_label, f"{result.overall_success_rate:.1f}%")
     table.add_row("Devices Processed", str(result.devices_processed))
     table.add_row("Actions Planned", str(result.total_actions_planned))
-    table.add_row("Actions Executed", str(result.total_actions_executed))
-    table.add_row("Successful Actions", str(result.total_actions_successful))
-    table.add_row("Failed Actions", str(result.total_actions_failed))
+    if result.dry_run:
+        table.add_row("Actions Validated", str(result.total_actions_validated))
+        table.add_row(
+            "Validation Failures", str(result.total_actions_validation_failed)
+        )
+    else:
+        table.add_row("Actions Executed", str(result.total_actions_executed))
+        table.add_row("Successful Actions", str(result.total_actions_successful))
+        table.add_row("Failed Actions", str(result.total_actions_failed))
 
     console.print(table)
 
@@ -1703,9 +1735,6 @@ def display_remediation_summary(result):
         console.print(
             "\n[green]✅ All remediation actions completed successfully![/green]"
         )
-
-
-
 
 
 def display_policy_summary(policy: NetworkPolicy):
