@@ -71,19 +71,6 @@ class NetworkPolicy(BaseModel):
         """Get a zone by name."""
         return self.zones.get(name)
 
-    def add_rule(self, rule: BaseRule) -> None:
-        """Add a rule to the policy."""
-        if isinstance(rule, FirewallRule):
-            self.firewall_rules.append(rule)
-        elif isinstance(rule, NATRule):
-            self.nat_rules.append(rule)
-        elif isinstance(rule, VPNRule):
-            self.vpn_rules.append(rule)
-        elif isinstance(rule, QoSRule):
-            self.qos_rules.append(rule)
-        else:
-            raise ValueError(f"Unsupported rule type: {type(rule)}")
-
     def add_firewall_rule(self, rule: FirewallRule) -> None:
         """Add a firewall rule."""
         self.firewall_rules.append(rule)
@@ -108,10 +95,6 @@ class NetworkPolicy(BaseModel):
         all_rules.extend(self.vpn_rules)
         all_rules.extend(self.qos_rules)
         return all_rules
-
-    def get_rules_by_tag(self, tag: str) -> List[BaseRule]:
-        """Get all rules with a specific tag."""
-        return [rule for rule in self.get_all_rules() if tag in rule.tags]
 
     def get_enabled_rules(self) -> List[BaseRule]:
         """Get all enabled rules."""
@@ -233,10 +216,6 @@ class NetworkPolicy(BaseModel):
         # If we get here, there's potential overlap
         return True
 
-    def export_to_dict(self) -> Dict[str, Any]:
-        """Export policy to dictionary format."""
-        return self.model_dump()
-
     def export_to_yaml(self) -> str:
         """Export policy to YAML format."""
         import yaml
@@ -256,25 +235,9 @@ class NetworkPolicy(BaseModel):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "NetworkPolicy":
         """Create policy from dictionary."""
-        # Extract name from metadata if available
-        metadata = data.get("metadata", {})
+        metadata = data.pop("metadata", {})
         name = metadata.get("name", "unnamed-policy")
-
-        # Remove metadata from data to avoid conflicts
-        data_copy = data.copy()
-        if "metadata" in data_copy:
-            del data_copy["metadata"]
-
-        # Create policy with name and metadata
-        policy = cls(name=name, **data_copy)
-
-        # Update metadata if provided
-        if metadata:
-            for key, value in metadata.items():
-                if hasattr(policy.metadata, key):
-                    setattr(policy.metadata, key, value)
-
-        return policy
+        return cls(name=name, metadata=PolicyMetadata(**metadata), **data)
 
     @classmethod
     def from_yaml(cls, yaml_content: str) -> "NetworkPolicy":
@@ -292,24 +255,4 @@ class NetworkPolicy(BaseModel):
         data = json.loads(json_content)
         return cls.from_dict(data)
 
-    def audit(self, devices: List[Any]) -> Any:
-        """Audit the policy against actual device configurations."""
 
-        from ..audit.engine import AuditEngine
-
-        audit_engine = AuditEngine()
-        import asyncio
-
-        return asyncio.run(audit_engine.audit_policy(self, devices))
-
-    def enforce(self, devices: List[Any], dry_run: bool = False) -> Any:
-        """Enforce the policy on the given devices."""
-
-        from ..enforcement.engine import EnforcementEngine
-
-        enforcement_engine = EnforcementEngine()
-        import asyncio
-
-        return asyncio.run(
-            enforcement_engine.enforce_policy(self, devices, dry_run=dry_run)
-        )

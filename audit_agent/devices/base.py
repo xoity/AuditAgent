@@ -3,7 +3,7 @@ Base classes for network device abstraction.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -195,74 +195,3 @@ class FirewallDevice(NetworkDevice):
         pass
 
 
-class RouterDevice(NetworkDevice):
-    """Base class for router devices."""
-
-    @abstractmethod
-    async def get_routing_table(self) -> List[ConfigurationItem]:
-        """Get routing table from the device."""
-        pass
-
-    @abstractmethod
-    async def get_acls(self) -> List[ConfigurationItem]:
-        """Get Access Control Lists from the device."""
-        pass
-
-
-class LoadBalancerDevice(NetworkDevice):
-    """Base class for load balancer devices."""
-
-    @abstractmethod
-    async def get_virtual_servers(self) -> List[ConfigurationItem]:
-        """Get virtual servers configuration."""
-        pass
-
-    @abstractmethod
-    async def get_pools(self) -> List[ConfigurationItem]:
-        """Get server pools configuration."""
-        pass
-
-
-class DeviceManager:
-    """Manages multiple network devices."""
-
-    def __init__(self):
-        self.devices: List[NetworkDevice] = []
-
-    def add_device(self, device: NetworkDevice) -> None:
-        """Add a device to manage."""
-        self.devices.append(device)
-
-    def remove_device(self, device: NetworkDevice) -> None:
-        """Remove a device from management."""
-        if device in self.devices:
-            self.devices.remove(device)
-
-    def get_devices_by_type(self, device_type: type) -> List[NetworkDevice]:
-        """Get devices of a specific type."""
-        return [device for device in self.devices if isinstance(device, device_type)]
-
-    async def connect_all(self) -> Dict[NetworkDevice, bool]:
-        """Connect to all devices."""
-        results = {}
-        for device in self.devices:
-            try:
-                results[device] = await device.connect()
-            except Exception:
-                results[device] = False
-        return results
-
-    async def disconnect_all(self) -> None:
-        """Disconnect from all devices."""
-        for device in self.devices:
-            try:
-                await device.disconnect()
-            except Exception:
-                pass
-
-    async def test_all_connectivity(self) -> Dict[NetworkDevice, bool]:
-        """Test connectivity to all devices."""
-        results = {}
-        for device in self.devices:
-            results[device] = await device.test_connectivity()
-        return results

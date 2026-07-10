@@ -1,0 +1,7 @@
+devices:
+  - type: "linux_iptables"
+    name: "alpine-vm"
+    host: "127.0.0.1"
+    port: 2200
+    username: "vagrant"
+    description: "Alpine Linux test VM"

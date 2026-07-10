@@ -4,7 +4,6 @@ Logging configuration for AuditAgent.
 
 import logging
 import sys
-from typing import Optional
 
 
 # Color codes for console output
@@ -125,37 +124,3 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-# Convenience functions for different log levels
-def log_success(message: str, logger: Optional[logging.Logger] = None) -> None:
-    """Log a success message."""
-    if logger is None:
-        logger = get_logger("audit_agent")
-    logger.info("✓ %s", message)
-
-
-def log_error(message: str, logger: Optional[logging.Logger] = None) -> None:
-    """Log an error message."""
-    if logger is None:
-        logger = get_logger("audit_agent")
-    logger.error("✗ %s", message)
-
-
-def log_warning(message: str, logger: Optional[logging.Logger] = None) -> None:
-    """Log a warning message."""
-    if logger is None:
-        logger = get_logger("audit_agent")
-    logger.warning("⚠ %s", message)
-
-
-def log_info(message: str, logger: Optional[logging.Logger] = None) -> None:
-    """Log an info message."""
-    if logger is None:
-        logger = get_logger("audit_agent")
-    logger.info(message)
-
-
-def log_debug(message: str, logger: Optional[logging.Logger] = None) -> None:
-    """Log a debug message."""
-    if logger is None:
-        logger = get_logger("audit_agent")
-    logger.debug(message)

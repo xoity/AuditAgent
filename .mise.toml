@@ -100,5 +100,5 @@ run = ["python -m build"]
 description = "Build distribution packages"
 
 [tasks.version]
-run = ["python -c \"from audit_agent import __version__; print(__version__)\""]
+run = ["python -c \"from importlib.metadata import version; print(version('audit-agent'))\""]
 description = "Show AuditAgent version"

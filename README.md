@@ -35,6 +35,75 @@
 
 Refer to the [Getting Started guide](docs/GETTING_STARTED.md) for installation steps, example code, and CLI usage.
 
+### Verification Workflow
+
+End-to-end live test against an Alpine Linux VM showing audit, dry-run, enforcement, and verification:
+
+```bash
+# 1. Create policy (allow SSH, HTTP; block telnet)
+cat > policy.yaml << 'EOF'
+metadata:
+  name: "vm-policy"
+  version: "1.0"
+  description: "Test policy for SSH + HTTP"
+firewall_rules:
+  - name: "allow-ssh"
+    enabled: true
+    priority: 10
+    action: "allow"
+    direction: "inbound"
+    protocol: { name: "tcp", number: 6 }
+    destination_ports: [{ number: 22 }]
+  - name: "allow-http"
+    enabled: true
+    priority: 20
+    action: "allow"
+    direction: "inbound"
+    protocol: { name: "tcp", number: 6 }
+    destination_ports: [{ number: 80 }]
+  - name: "block-telnet"
+    enabled: true
+    priority: 50
+    action: "deny"
+    direction: "inbound"
+    protocol: { name: "tcp", number: 6 }
+    destination_ports: [{ number: 23 }]
+    log_traffic: true
+EOF
+
+# 2. Create devices config (VM at 127.0.0.1:2200)
+cat > devices.yaml << 'EOF'
+devices:
+  - type: "linux_iptables"
+    name: "test-vm"
+    host: "127.0.0.1"
+    port: 2200
+    username: "vagrant"
+EOF
+
+# 3. Audit current state
+audit-agent audit policy.yaml devices.yaml --full-report
+# Output: 0% compliance, 3 rules missing
+
+# 4. Dry-run enforce (validates commands, no changes)
+audit-agent enforce --dry-run policy.yaml devices.yaml
+# Output: 3 actions planned, all validated
+
+# 5. Live enforce (applies rules)
+audit-agent enforce --no-dry-run policy.yaml devices.yaml
+# Output: 3 actions executed, 3 success, 0 fail
+
+# 6. Verify iptables on the device
+ssh vagrant@127.0.0.1 -p 2200 "sudo iptables -L -n"
+# Shows: ACCEPT tcp dpt:22, ACCEPT tcp dpt:80, LOG+DROP tcp dpt:23
+
+# 7. Re-audit to confirm 100% compliance
+audit-agent audit policy.yaml devices.yaml
+# Output: 100% compliance, 0 issues
+```
+
+> **Note on SSH keys**: If SSH agent is available (e.g. `vagrant ssh` sets it up), omit `private_key` from devices config. The SSH agent provides keys automatically, avoiding permission warnings on key files owned by root/Vagrant.
+
 ## AI-Powered Remediation 🤖
 
 AuditAgent now includes AI-powered automatic remediation that uses advanced language models to analyze compliance issues and generate corrected policies:

@@ -5,11 +5,9 @@ Command-line interface for AuditAgent.
 import asyncio
 import json
 import os
-import time
 from pathlib import Path
 from typing import List, Optional
 
-import requests
 import typer
 import yaml
 from rich.console import Console
@@ -19,8 +17,7 @@ from .audit.engine import AuditEngine
 from .core.logging_config import get_logger
 from .core.policy import NetworkPolicy
 from .core.rules import FirewallRule
-from .core.token import TokenManager
-from .devices.linux_iptables import LinuxIptables
+from .devices.linux_iptables import LinuxIptables, firewall_rule_to_commands
 from .devices.simulated_iptables import SimulatedLinuxIptables
 from .enforcement.engine import EnforcementEngine
 from .enforcement.remediation import RemediationStrategy
@@ -41,195 +38,10 @@ except ImportError:
 
 def version_callback(value: bool):
     if value:
-        console.print("AuditAgent version 0.1.0")
+        from importlib.metadata import version
+
+        console.print(f"AuditAgent version {version('audit-agent')}")
         raise typer.Exit()
-
-
-def help_callback(ctx: typer.Context, _param: typer.CallbackParam, value: bool):
-    if not value or ctx.resilient_parsing:
-        return
-
-    # Show comprehensive help
-    console.print(
-        "\n[bold blue]AuditAgent - Agentless Network Security Policy Enforcer & Auditor[/bold blue]\n"
-    )
-
-    console.print("[bold]USAGE:[/bold]")
-    console.print("  python -m audit_agent.cli [COMMAND] [OPTIONS] [ARGUMENTS]\n")
-
-    console.print("[bold]COMMANDS:[/bold]\n")
-
-    # Audit command
-    console.print(
-        "[bold cyan]audit[/bold cyan] [italic]policy_file devices_file[/italic]"
-    )
-    console.print("  Audit devices against a network security policy")
-    console.print("  [bold]Arguments:[/bold]")
-    console.print(
-        "    file1    Path to policy or devices file (YAML or JSON) [required]"
-    )
-    console.print(
-        "    file2    Path to devices or policy file (YAML or JSON) [required]"
-    )
-    console.print("  [bold]Options:[/bold]")
-    console.print(
-        "    --output-format TEXT    Output format: text, json, html [default: text]"
-    )
-    console.print("    --output-file PATH      Output file path")
-    console.print(
-        "    --full-report           Show detailed issues for all severity levels"
-    )
-    console.print(
-        "    -v, --verbose           Increase verbosity (-v, -vv) [default: 0]"
-    )
-    console.print("")
-
-    # Enforce command
-    console.print(
-        "[bold cyan]enforce[/bold cyan] [italic]policy_file devices_file[/italic]"
-    )
-    console.print("  Enforce a network security policy on devices")
-    console.print("  [bold]Arguments:[/bold]")
-    console.print("    policy_file    Path to policy file (YAML or JSON) [required]")
-    console.print("    devices_file   Path to devices configuration file [required]")
-    console.print("  [bold]Options:[/bold]")
-    console.print(
-        "    --dry-run / --no-dry-run    Perform dry run without making changes [default: dry-run]"
-    )
-    console.print(
-        "    --output-format TEXT        Output format: text, json [default: text]"
-    )
-    console.print("    --output-file PATH          Output file path")
-    console.print(
-        "    -v, --verbose               Increase verbosity (-v, -vv) [default: 0]"
-    )
-    console.print("")
-
-    # Auto-remediate command
-    console.print(
-        "[bold cyan]auto-remediate[/bold cyan] [italic]policy_file devices_file[/italic]"
-    )
-    console.print("  Automatically remediate compliance issues using smart enforcement")
-    console.print("  [bold]Arguments:[/bold]")
-    console.print("    policy_file    Path to policy file (YAML or JSON) [required]")
-    console.print("    devices_file   Path to devices configuration file [required]")
-    console.print("  [bold]Options:[/bold]")
-    console.print(
-        "    --strategy TEXT             Remediation strategy: conservative, balanced, aggressive [default: balanced]"
-    )
-    console.print(
-        "    --dry-run / --no-dry-run    Perform dry run without making changes [default: dry-run]"
-    )
-    console.print(
-        "    --stop-on-error / --no-stop-on-error    Stop execution on first error [default: stop-on-error]"
-    )
-    console.print(
-        "    --output-format TEXT        Output format: text, json [default: text]"
-    )
-    console.print("    --output-file PATH          Output file path")
-    console.print(
-        "    -v, --verbose               Increase verbosity (-v, -vv) [default: 0]"
-    )
-    console.print("")
-
-    # Auto-generate command
-    console.print(
-        "[bold cyan]auto-generate[/bold cyan] [italic]policy_file devices_file[/italic]"
-    )
-    console.print("  Auto-generate remediation policy from audit results")
-    console.print("  [bold]Arguments:[/bold]")
-    console.print(
-        "    file1    Path to policy or devices file (YAML or JSON) [required]"
-    )
-    console.print(
-        "    file2    Path to devices or policy file (YAML or JSON) [required]"
-    )
-    console.print("  [bold]Options:[/bold]")
-    console.print(
-        "    --output-file PATH      Output file for remediation policy [default: remediation-policy.yaml]"
-    )
-    console.print(
-        "    -v, --verbose           Increase verbosity (-v, -vv) [default: 0]"
-    )
-    console.print("")
-
-    # Validate command
-    console.print("[bold cyan]validate[/bold cyan] [italic]policy_file[/italic]")
-    console.print("  Validate a network security policy for correctness")
-    console.print("  [bold]Arguments:[/bold]")
-    console.print("    policy_file    Path to policy file (YAML or JSON) [required]")
-    console.print("  [bold]Options:[/bold]")
-    console.print(
-        "    --output-format TEXT    Output format: text, json [default: text]"
-    )
-    console.print("    --output-file PATH      Output file path")
-    console.print("")
-
-    # Create-example command
-    console.print("[bold cyan]create-example[/bold cyan] [italic]output_file[/italic]")
-    console.print("  Create an example network security policy")
-    console.print("  [bold]Arguments:[/bold]")
-    console.print("    output_file    Path for the example policy file [required]")
-    console.print("  [bold]Options:[/bold]")
-    console.print(
-        "    --format TEXT    Format for the example: yaml, json [default: yaml]"
-    )
-    console.print("")
-
-    console.print("[bold]GLOBAL OPTIONS:[/bold]")
-    console.print("  -h, --help              Show this comprehensive help")
-    console.print("  --version               Show version information")
-    console.print("  --install-completion    Install completion for the current shell")
-    console.print("  --show-completion       Show completion for current shell")
-    console.print("")
-
-    console.print("[bold]VERBOSITY LEVELS:[/bold]")
-    console.print(
-        "  [bold]Default[/bold]     Only show essential messages (warnings/errors)"
-    )
-    console.print(
-        "  [bold]-v[/bold]         Show debug messages from AuditAgent modules"
-    )
-    console.print(
-        "  [bold]-vv[/bold]        Show all debug messages including external libraries"
-    )
-    console.print("")
-
-    console.print("[bold]EXAMPLES:[/bold]")
-    console.print("  [dim]# Audit with minimal output[/dim]")
-    console.print("  python -m audit_agent.cli audit policy.yaml devices.yaml")
-    console.print("")
-    console.print("  [dim]# Audit with debug output[/dim]")
-    console.print("  python -m audit_agent.cli audit -v policy.yaml devices.yaml")
-    console.print("")
-    console.print("  [dim]# Enforce with dry run (default)[/dim]")
-    console.print("  python -m audit_agent.cli enforce policy.yaml devices.yaml")
-    console.print("")
-    console.print("  [dim]# Enforce with actual changes[/dim]")
-    console.print(
-        "  python -m audit_agent.cli enforce --no-dry-run policy.yaml devices.yaml"
-    )
-    console.print("")
-    console.print("  [dim]# Auto-generate remediation policy from audit results[/dim]")
-    console.print("  python -m audit_agent.cli auto-generate policy.yaml devices.yaml")
-    console.print("")
-    console.print("  [dim]# Automated remediation with conservative strategy[/dim]")
-    console.print(
-        "  python -m audit_agent.cli auto-remediate --strategy conservative policy.yaml devices.yaml"
-    )
-    console.print("")
-    console.print("  [dim]# Automated remediation with actual fixes[/dim]")
-    console.print(
-        "  python -m audit_agent.cli auto-remediate --no-dry-run policy.yaml devices.yaml"
-    )
-    console.print("")
-    console.print("  [dim]# Validate policy file[/dim]")
-    console.print("  python -m audit_agent.cli validate policy.yaml")
-    console.print("")
-    console.print("  [dim]# Create example policy[/dim]")
-    console.print("  python -m audit_agent.cli create-example example-policy.yaml")
-
-    raise typer.Exit()
 
 
 app = typer.Typer(
@@ -237,171 +49,10 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 logger = get_logger(__name__)
-token_manager = TokenManager()
 
 
-@app.command()
-def login(
-    api_url: str = typer.Option(
-        "http://localhost:8000",
-        "--api-url",
-        help="API server URL",
-    ),
-):
-    """
-    Authenticate with AuditAgent UI.
-
-    This will open a browser for you to log in and authorize this CLI instance.
-    Similar to 'semgrep login'.
-    """
-    console.print("[bold blue]🔐 AuditAgent Login[/bold blue]\n")
-
-    # Step 1: Request device code
-    console.print("Requesting authentication code...")
-
-    try:
-        response = requests.post(f"{api_url}/api/auth/device/code", timeout=10)
-        response.raise_for_status()
-        data = response.json()
-    except requests.RequestException as e:
-        console.print(f"[red]✗ Failed to connect to API: {e}[/red]")
-        console.print(
-            f"[red]  Make sure the AuditAgent UI is running at {api_url}[/red]"
-        )
-        raise typer.Exit(1)
-
-    device_code = data["device_code"]
-    user_code = data["user_code"]
-    verification_uri = data["verification_uri"]
-    expires_in = data["expires_in"]
-    interval = data.get("interval", 5)
-
-    # Step 2: Display instructions
-    console.print("\n[bold yellow]To authenticate:[/bold yellow]")
-    console.print(
-        f"  1. Open this URL in your browser: [cyan]{verification_uri}[/cyan]"
-    )
-    console.print(f"  2. Enter this code: [bold green]{user_code}[/bold green]")
-    console.print("\n[dim]Waiting for you to complete authentication...[/dim]")
-    console.print(f"[dim]Code expires in {expires_in} seconds[/dim]\n")
-
-    # Try to open browser automatically
-    try:
-        import webbrowser
-
-        webbrowser.open(verification_uri)
-        console.print("[dim]✓ Opened browser automatically[/dim]\n")
-    except Exception as exc:
-        logger.debug("Failed to open browser automatically: %s", exc)
-
-    # Step 3: Poll for token
-    start_time = time.time()
-
-    with console.status("[bold green]Waiting for authorization..."):
-        while True:
-            elapsed = time.time() - start_time
-
-            if elapsed > expires_in:
-                console.print(
-                    "[red]✗ Authentication timed out. Please try again.[/red]"
-                )
-                raise typer.Exit(1)
-
-            time.sleep(interval)
-
-            try:
-                token_response = requests.post(
-                    f"{api_url}/api/auth/token",
-                    json={
-                        "device_code": device_code,
-                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                    },
-                    timeout=10,
-                )
-
-                if token_response.status_code == 200:
-                    token_data = token_response.json()
-                    access_token = token_data["access_token"]
-
-                    # Save token
-                    token_manager.save_token(access_token, api_url)
-
-                    console.print(
-                        "\n[bold green]✓ Authentication successful![/bold green]"
-                    )
-                    console.print(
-                        f"[dim]Token saved to {token_manager.config_file}[/dim]\n"
-                    )
-                    console.print(
-                        "[bold]You can now use AuditAgent CLI with the UI.[/bold]"
-                    )
-                    return
-                elif token_response.status_code == 400:
-                    error_data = token_response.json()
-                    error = error_data.get("error", "unknown")
-
-                    if error == "expired_token":
-                        console.print(
-                            "[red]✗ Authentication code expired. Please try again.[/red]"
-                        )
-                        raise typer.Exit(1)
-                    elif error == "invalid_request":
-                        console.print("[red]✗ Invalid request. Please try again.[/red]")
-                        raise typer.Exit(1)
-                    # authorization_pending - continue polling
-                else:
-                    # Just continue polling if it's not a 200 or known 400 error
-                    pass
-
-            except requests.RequestException as e:
-                console.print(f"[red]✗ Connection error: {e}[/red]")
-                raise typer.Exit(1)
-
-
-@app.command()
-def logout():
-    """Remove stored authentication token."""
-    console.print("[bold blue]Logging out...[/bold blue]")
-    token_manager.clear_token()
-    console.print("[green]✓ Logged out successfully[/green]")
-
-
-@app.command()
-def whoami(
-    api_url: str = typer.Option(
-        None, "--api-url", help="API server URL (defaults to saved URL)"
-    ),
-):
-    """Display current authentication status."""
-    token = token_manager.get_token()
-    saved_api_url = token_manager.get_api_url()
-
-    if api_url is None:
-        api_url = saved_api_url
-
-    if not token:
-        console.print(
-            "[yellow]Not authenticated. Run 'auditagent login' to authenticate.[/yellow]"
-        )
-        raise typer.Exit(1)
-
-    console.print("[bold]Authentication Status:[/bold]")
-    console.print(f"  API URL: [cyan]{api_url}[/cyan]")
-    console.print(f"  Token: [green]{'*' * 20}{token[-8:]}[/green]")
-    console.print(f"  Config: [dim]{token_manager.config_file}[/dim]")
-
-
-# we need to implement this method for later
 @app.callback()
 def main_callback(
-    show_help: bool = typer.Option(
-        False,
-        "-h",
-        "--help",
-        callback=help_callback,
-        is_eager=True,
-        help="Show comprehensive help for all commands",
-    ),
     version: bool = typer.Option(
         False,
         "--version",
@@ -413,7 +64,6 @@ def main_callback(
     """
     AuditAgent - Agentless Network Security Policy Enforcer & Auditor
     """
-    pass  ## noooooooooooooooooooooooooooooooS
 
 
 @app.command()
@@ -1003,8 +653,7 @@ def auto_generate(
                     if rule.description:
                         commands_content.append(f"# Description: {rule.description}")
 
-                    # Generate iptables commands for this rule
-                    iptables_cmds = firewall_rule_to_iptables(rule)
+                    iptables_cmds = firewall_rule_to_commands(rule)
                     for cmd in iptables_cmds:
                         commands_content.append(cmd)
 
@@ -1355,169 +1004,6 @@ def ai_remediate(
         console.print(
             f"     [dim]audit-agent enforce --no-dry-run {output_file} {devices_file}[/dim]"
         )
-
-
-def firewall_rule_to_iptables(rule: FirewallRule) -> List[str]:
-    """Convert a firewall rule to iptables command(s)."""
-    commands = []
-
-    # Determine chain based on direction
-    chain = "INPUT" if rule.direction.value == "inbound" else "OUTPUT"
-
-    # Determine action
-    action = "ACCEPT" if rule.action.value == "allow" else "DROP"
-
-    # Build base command
-    cmd_parts = ["iptables", "-A", chain]
-
-    # Protocol
-    if rule.protocol and rule.protocol.name != "any":
-        cmd_parts.extend(["-p", rule.protocol.name])
-
-    # Helper to get IP string (handles both IPAddress and IPRange)
-    def ip_to_str(ip):
-        if hasattr(ip, "cidr"):
-            return ip.cidr
-        elif hasattr(ip, "address"):
-            return ip.address
-        return str(ip)
-
-    # Source IPs
-    if rule.source_ips:
-        for source_ip in rule.source_ips:
-            cmd = cmd_parts.copy()
-            cmd.extend(["-s", ip_to_str(source_ip)])
-
-            # Destination IPs
-            if rule.destination_ips:
-                for dest_ip in rule.destination_ips:
-                    dest_cmd = cmd.copy()
-                    dest_cmd.extend(["-d", ip_to_str(dest_ip)])
-
-                    # Destination ports
-                    if rule.destination_ports:
-                        for port in rule.destination_ports:
-                            port_cmd = dest_cmd.copy()
-                            if port.number:
-                                port_cmd.extend(["--dport", str(port.number)])
-                            elif port.range_start and port.range_end:
-                                port_cmd.extend(
-                                    ["--dport", f"{port.range_start}:{port.range_end}"]
-                                )
-
-                            # Add logging if enabled
-                            if rule.log_traffic:
-                                log_cmd = port_cmd.copy()
-                                log_cmd[2] = "LOG"
-                                log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
-                                commands.append(" ".join(log_cmd))
-
-                            port_cmd.extend(["-j", action])
-                            commands.append(" ".join(port_cmd))
-                    else:
-                        # No ports specified
-                        if rule.log_traffic:
-                            log_cmd = dest_cmd.copy()
-                            log_cmd[2] = "LOG"
-                            log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
-                            commands.append(" ".join(log_cmd))
-
-                        dest_cmd.extend(["-j", action])
-                        commands.append(" ".join(dest_cmd))
-            else:
-                # No destination IPs, add rule for source only
-                if rule.destination_ports:
-                    for port in rule.destination_ports:
-                        port_cmd = cmd.copy()
-                        if port.number:
-                            port_cmd.extend(["--dport", str(port.number)])
-                        elif port.range_start and port.range_end:
-                            port_cmd.extend(
-                                ["--dport", f"{port.range_start}:{port.range_end}"]
-                            )
-
-                        if rule.log_traffic:
-                            log_cmd = port_cmd.copy()
-                            log_cmd[2] = "LOG"
-                            log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
-                            commands.append(" ".join(log_cmd))
-
-                        port_cmd.extend(["-j", action])
-                        commands.append(" ".join(port_cmd))
-                else:
-                    if rule.log_traffic:
-                        log_cmd = cmd.copy()
-                        log_cmd[2] = "LOG"
-                        log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
-                        commands.append(" ".join(log_cmd))
-
-                    cmd.extend(["-j", action])
-                    commands.append(" ".join(cmd))
-    else:
-        # No source IPs specified, create rule for any source
-        if rule.destination_ips:
-            for dest_ip in rule.destination_ips:
-                dest_cmd = cmd_parts.copy()
-                dest_cmd.extend(["-d", ip_to_str(dest_ip)])
-
-                if rule.destination_ports:
-                    for port in rule.destination_ports:
-                        port_cmd = dest_cmd.copy()
-                        if port.number:
-                            port_cmd.extend(["--dport", str(port.number)])
-                        elif port.range_start and port.range_end:
-                            port_cmd.extend(
-                                ["--dport", f"{port.range_start}:{port.range_end}"]
-                            )
-
-                        if rule.log_traffic:
-                            log_cmd = port_cmd.copy()
-                            log_cmd[2] = "LOG"
-                            log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
-                            commands.append(" ".join(log_cmd))
-
-                        port_cmd.extend(["-j", action])
-                        commands.append(" ".join(port_cmd))
-                else:
-                    if rule.log_traffic:
-                        log_cmd = dest_cmd.copy()
-                        log_cmd[2] = "LOG"
-                        log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
-                        commands.append(" ".join(log_cmd))
-
-                    dest_cmd.extend(["-j", action])
-                    commands.append(" ".join(dest_cmd))
-        else:
-            # Simple rule with no IPs
-            if rule.destination_ports:
-                for port in rule.destination_ports:
-                    port_cmd = cmd_parts.copy()
-                    if port.number:
-                        port_cmd.extend(["--dport", str(port.number)])
-                    elif port.range_start and port.range_end:
-                        port_cmd.extend(
-                            ["--dport", f"{port.range_start}:{port.range_end}"]
-                        )
-
-                    if rule.log_traffic:
-                        log_cmd = port_cmd.copy()
-                        log_cmd[2] = "LOG"
-                        log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
-                        commands.append(" ".join(log_cmd))
-
-                    port_cmd.extend(["-j", action])
-                    commands.append(" ".join(port_cmd))
-            else:
-                if rule.log_traffic:
-                    log_cmd = cmd_parts.copy()
-                    log_cmd[2] = "LOG"
-                    log_cmd.extend(["--log-prefix", f"[{rule.name}] "])
-                    commands.append(" ".join(log_cmd))
-
-                cmd_parts.extend(["-j", action])
-                commands.append(" ".join(cmd_parts))
-
-    return commands if commands else [" ".join(cmd_parts + ["-j", action])]
 
 
 def load_policy(policy_file: Path) -> NetworkPolicy:

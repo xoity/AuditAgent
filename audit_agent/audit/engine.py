@@ -475,7 +475,7 @@ class RuleComparer:
             # Skip Docker-related rules unless they conflict with policy
             if self._is_docker_related_rule(
                 device_rule.content
-            ) and not self._conflicts_with_policy(device_rule, policy_firewall_rules):
+            ):
                 logger.debug("Skipping Docker-related rule: %s", device_rule.content)
                 continue
 
@@ -544,15 +544,6 @@ class RuleComparer:
         ]
         content_lower = rule_content.lower()
         return any(indicator in content_lower for indicator in system_indicators)
-
-    @staticmethod
-    def _conflicts_with_policy(
-        device_rule: ConfigurationItem, policy_rules: List[FirewallRule]
-    ) -> bool:
-        """Check if a Docker rule conflicts with explicit policy rules."""
-        # This is a placeholder for more sophisticated conflict detection
-        # For now, we assume Docker rules don't conflict with policy rules
-        return False
 
     def _device_rule_covered_by_policy(
         self, device_rule: ConfigurationItem, policy_rules: List[FirewallRule]
@@ -760,97 +751,35 @@ class AuditEngine:
             report.append("DETAILED ISSUES BY SEVERITY:")
             report.append("=" * 80)
 
-            # Critical Issues
-            if critical_issues:
-                report.append("")
-                report.append("CRITICAL ISSUES:")
-                report.append("-" * 40)
-                for i, issue in enumerate(critical_issues, 1):
-                    report.append(f"{i}. {issue.description}")
-                    report.append(f"   Device: {issue.device}")
-                    report.append(f"   Type: {issue.issue_type}")
-                    if issue.rule_name:
-                        report.append(f"   Rule: {issue.rule_name}")
-                    report.append(f"   Recommendation: {issue.recommendation}")
-                    if issue.current_config:
-                        report.append(f"   Current Config: {issue.current_config}")
-                    if issue.expected_config:
-                        report.append("   Expected Config:")
-                        formatted_config = self._format_firewall_rule(
-                            issue.expected_config
-                        )
-                        for line in formatted_config.split("\n"):
-                            report.append(f"     {line}")
+            # Severity-ordered issues
+            severity_sections = [
+                ("CRITICAL ISSUES:", critical_issues),
+                ("HIGH PRIORITY ISSUES:", high_issues),
+                ("MEDIUM PRIORITY ISSUES:", medium_issues),
+                ("LOW PRIORITY ISSUES:", low_issues),
+            ]
+            for section_label, issues_list in severity_sections:
+                if issues_list:
                     report.append("")
-
-            # High Issues
-            if high_issues:
-                report.append("")
-                report.append("HIGH PRIORITY ISSUES:")
-                report.append("-" * 40)
-                for i, issue in enumerate(high_issues, 1):
-                    report.append(f"{i}. {issue.description}")
-                    report.append(f"   Device: {issue.device}")
-                    report.append(f"   Type: {issue.issue_type}")
-                    if issue.rule_name:
-                        report.append(f"   Rule: {issue.rule_name}")
-                    report.append(f"   Recommendation: {issue.recommendation}")
-                    if issue.current_config:
-                        report.append(f"   Current Config: {issue.current_config}")
-                    if issue.expected_config:
-                        report.append("   Expected Config:")
-                        formatted_config = self._format_firewall_rule(
-                            issue.expected_config
-                        )
-                        for line in formatted_config.split("\n"):
-                            report.append(f"     {line}")
-                    report.append("")
-
-            # Medium Issues
-            if medium_issues:
-                report.append("")
-                report.append("MEDIUM PRIORITY ISSUES:")
-                report.append("-" * 40)
-                for i, issue in enumerate(medium_issues, 1):
-                    report.append(f"{i}. {issue.description}")
-                    report.append(f"   Device: {issue.device}")
-                    report.append(f"   Type: {issue.issue_type}")
-                    if issue.rule_name:
-                        report.append(f"   Rule: {issue.rule_name}")
-                    report.append(f"   Recommendation: {issue.recommendation}")
-                    if issue.current_config:
-                        report.append(f"   Current Config: {issue.current_config}")
-                    if issue.expected_config:
-                        report.append("   Expected Config:")
-                        formatted_config = self._format_firewall_rule(
-                            issue.expected_config
-                        )
-                        for line in formatted_config.split("\n"):
-                            report.append(f"     {line}")
-                    report.append("")
-
-            # Low Issues
-            if low_issues:
-                report.append("")
-                report.append("LOW PRIORITY ISSUES:")
-                report.append("-" * 40)
-                for i, issue in enumerate(low_issues, 1):
-                    report.append(f"{i}. {issue.description}")
-                    report.append(f"   Device: {issue.device}")
-                    report.append(f"   Type: {issue.issue_type}")
-                    if issue.rule_name:
-                        report.append(f"   Rule: {issue.rule_name}")
-                    report.append(f"   Recommendation: {issue.recommendation}")
-                    if issue.current_config:
-                        report.append(f"   Current Config: {issue.current_config}")
-                    if issue.expected_config:
-                        report.append("   Expected Config:")
-                        formatted_config = self._format_firewall_rule(
-                            issue.expected_config
-                        )
-                        for line in formatted_config.split("\n"):
-                            report.append(f"     {line}")
-                    report.append("")
+                    report.append(section_label)
+                    report.append("-" * 40)
+                    for i, issue in enumerate(issues_list, 1):
+                        report.append(f"{i}. {issue.description}")
+                        report.append(f"   Device: {issue.device}")
+                        report.append(f"   Type: {issue.issue_type}")
+                        if issue.rule_name:
+                            report.append(f"   Rule: {issue.rule_name}")
+                        report.append(f"   Recommendation: {issue.recommendation}")
+                        if issue.current_config:
+                            report.append(f"   Current Config: {issue.current_config}")
+                        if issue.expected_config:
+                            report.append("   Expected Config:")
+                            formatted_config = self._format_firewall_rule(
+                                issue.expected_config
+                            )
+                            for line in formatted_config.split("\n"):
+                                report.append(f"     {line}")
+                        report.append("")
 
             report.append("=" * 80)
             report.append("")

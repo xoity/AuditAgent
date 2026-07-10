@@ -80,56 +80,11 @@ class AuditResultAnalyzer:
             if hasattr(issue.expected_config, "model_dump"):
                 # Pydantic model
                 issue_dict["expected_config"] = issue.expected_config.model_dump()
-            elif hasattr(issue.expected_config, "__dict__"):
-                # Regular class with __dict__
-                issue_dict["expected_config"] = self._serialize_rule(
-                    issue.expected_config
-                )
             else:
                 # String or other primitive
                 issue_dict["expected_config"] = str(issue.expected_config)
 
         return issue_dict
-
-    def _serialize_rule(self, rule: Any) -> dict[str, Any]:
-        """Serialize a rule object to dictionary."""
-        if hasattr(rule, "model_dump"):
-            return rule.model_dump()
-
-        # Fallback: manual serialization
-        rule_dict = {}
-        for key, value in rule.__dict__.items():
-            if key.startswith("_"):
-                continue
-
-            # Handle enums
-            if hasattr(value, "value"):
-                rule_dict[key] = value.value
-            # Handle lists
-            elif isinstance(value, list):
-                rule_dict[key] = [
-                    self._serialize_value(v) for v in value if v is not None
-                ]
-            # Handle other objects
-            elif hasattr(value, "__dict__"):
-                rule_dict[key] = self._serialize_value(value)
-            # Primitives
-            else:
-                rule_dict[key] = value
-
-        return rule_dict
-
-    def _serialize_value(self, value: Any) -> Any:
-        """Serialize any value to JSON-compatible format."""
-        if value is None:
-            return None
-        if hasattr(value, "value"):
-            return value.value
-        if hasattr(value, "model_dump"):
-            return value.model_dump()
-        if hasattr(value, "__dict__"):
-            return str(value)
-        return value
 
     def generate_prompt(self, analysis: dict[str, Any]) -> str:
         """Generate a detailed prompt for AI analysis."""

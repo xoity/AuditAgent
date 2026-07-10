@@ -20,13 +20,6 @@ This directory contains example policies, device configurations, and scripts to 
 - **Use Case**: Learning policy syntax, quick tests
 - **Devices**: Single Linux device
 
-**`clean-linux-policy.yaml`**
-
-- **Purpose**: Production-ready secure policy
-- **Features**: Comprehensive security rules, strict default-deny
-- **Use Case**: Enterprise Linux server hardening
-- **Devices**: Single Linux device with strict controls
-
 ### Device Configuration Examples
 
 **`devices.yaml`**

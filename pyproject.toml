@@ -33,8 +33,6 @@ dependencies = [
     "rich>=13.0.0",
     "typer>=0.9.0",
     "pyyaml>=6.0",
-    "jinja2>=3.1.0",
-    "cryptography>=41.0.0",
 ]
 
 [project.optional-dependencies]
@@ -64,54 +62,6 @@ audit-agent = "audit_agent.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["audit_agent*"]
-
-[tool.ruff]
-# Same line length as Black
-line-length = 88
-# Target Python 3.9+
-target-version = "py38"
-
-[tool.ruff.lint]
-select = [
-    "F",      # Pyflakes
-    "E",      # pycodestyle errors
-    "W",      # pycodestyle warnings
-    "I",      # isort
-    "N",      # pep8-naming
-    "UP",     # pyupgrade
-    "S",      # bandit (security)
-    "B",      # bugbear
-    "A",      # builtins
-    "C4",     # comprehensions
-    "ERA",    # eradicate
-]
-ignore = [
-    "E501",   # Line too long (handled by formatter)
-    "S101",   # Use of assert detected (needed for tests)
-    "B008",   # Do not perform function calls in argument defaults (common in Typer)
-    "A002",   # Argument shadowing a built-in
-    "N805",   # First argument should be named self (cls is correct for validators)
-    "ERA001", # Commented-out code
-    "B904",   # raise ... from err
-]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "S106", "S108", "S105", "F841"]
-"examples/**/*.py" = ["T20", "S106"]
-"audit_agent/cli.py" = ["T201"]
-"audit_agent/core/credentials.py" = ["S507"]
-"audit_agent/devices/base.py" = ["S110"]
-"audit_agent/devices/linux_iptables.py" = ["S110"]
-"audit_agent/enforcement/engine.py" = ["B007"]
-"audit_agent/ai/**/*.py" = ["S113"]  # AI modules use requests with timeout
-
-[tool.black]
-line-length = 88
-target-version = ['py39']
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3
 
 [tool.mypy]
 python_version = "3.9"

@@ -38,9 +38,6 @@ class AIConfig(BaseModel):
 
     default_provider: AIProvider = Field(default=AIProvider.GOOGLE)
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
-    enable_caching: bool = True
-    cache_ttl: int = 3600  # seconds
-
     @classmethod
     def load_from_file(cls, config_path: Optional[Path] = None) -> "AIConfig":
         """Load configuration from YAML file."""
@@ -122,23 +119,4 @@ class AIConfig(BaseModel):
 
         return config
 
-    def save_to_file(self, config_path: Optional[Path] = None) -> None:
-        """Save configuration to YAML file."""
-        if config_path is None:
-            config_path = Path.home() / ".audit-agent" / "config.yaml"
 
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Load existing config if present
-        existing_data = {}
-        if config_path.exists():
-            with open(config_path) as f:
-                existing_data = yaml.safe_load(f) or {}
-
-        # Update AI section
-        existing_data["ai"] = self.model_dump(exclude_none=True)
-
-        with open(config_path, "w") as f:
-            yaml.dump(existing_data, f, default_flow_style=False, sort_keys=False)
-
-        logger.info("Configuration saved to %s", config_path)
