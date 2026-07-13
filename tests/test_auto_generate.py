@@ -74,14 +74,15 @@ class TestFirewallRuleToIptables:
         assert any("--log-prefix" in cmd for cmd in log_cmds)
 
     def test_rule_with_multiple_ports(self):
-        """Test rule with multiple ports."""
+        """Test rule with multiple ports generates separate rules."""
         rule = FirewallRule().allow_inbound().tcp().ports([80, 443])
         rule.name = "allow-web-traffic"
 
         commands = firewall_rule_to_commands(rule)
 
-        assert len(commands) > 0
+        assert len(commands) >= 2
         assert any("80" in cmd for cmd in commands)
+        assert any("443" in cmd for cmd in commands)
 
     def test_rule_with_port_range(self):
         """Test rule with port range."""

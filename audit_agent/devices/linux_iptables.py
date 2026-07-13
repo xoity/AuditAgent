@@ -3,6 +3,7 @@ Linux iptables firewall device implementation.
 """
 
 import re
+import shlex
 from typing import List, Optional
 
 from ..core.credentials import credential_manager
@@ -30,54 +31,67 @@ def firewall_rule_to_commands(rule: FirewallRule) -> List[str]:
 
 
 def _build_iptables_rule(rule: FirewallRule, chain: str) -> List[str]:
-    """Build iptables rule for a specific chain."""
-    cmd_parts = ["iptables", "-A", chain]
+    """Build iptables rule for a specific chain. Expands multiple IPs/ports into separate rules."""
+    import itertools
 
+    base_parts = ["iptables", "-A", chain]
     if rule.protocol and rule.protocol.name != "any":
-        cmd_parts.extend(["-p", rule.protocol.name])
+        base_parts.extend(["-p", rule.protocol.name])
 
-    if rule.source_ips:
-        source_ip = rule.source_ips[0]
-        if isinstance(source_ip, IPAddress):
-            cmd_parts.extend(["-s", source_ip.address])
-        elif isinstance(source_ip, IPRange):
-            cmd_parts.extend(["-s", source_ip.cidr])
+    def _ip_flag(ip_val, flag: str) -> List[str]:
+        if isinstance(ip_val, IPAddress):
+            return [flag, ip_val.address]
+        elif isinstance(ip_val, IPRange):
+            return [flag, ip_val.cidr]
+        return []
 
-    if rule.destination_ips:
-        dest_ip = rule.destination_ips[0]
-        if isinstance(dest_ip, IPAddress):
-            cmd_parts.extend(["-d", dest_ip.address])
-        elif isinstance(dest_ip, IPRange):
-            cmd_parts.extend(["-d", dest_ip.cidr])
+    source_variants = [_ip_flag(ip, "-s") for ip in rule.source_ips] or [[]]
+    dest_variants = [_ip_flag(ip, "-d") for ip in rule.destination_ips] or [[]]
 
-    if rule.destination_ports and rule.protocol and rule.protocol.name in ["tcp", "udp"]:
-        port = rule.destination_ports[0]
-        if port.is_single():
-            cmd_parts.extend(["--dport", str(port.number)])
-        elif port.is_range():
-            cmd_parts.extend(["--dport", f"{port.range_start}:{port.range_end}"])
+    dport_variants: List[List[str]] = []
+    if rule.protocol and rule.protocol.name in ("tcp", "udp") and rule.destination_ports:
+        for port in rule.destination_ports:
+            if port.is_single():
+                dport_variants.append(["--dport", str(port.number)])
+            elif port.is_range():
+                dport_variants.append(["--dport", f"{port.range_start}:{port.range_end}"])
+    dport_variants = dport_variants or [[]]
 
-    if rule.source_ports and rule.protocol and rule.protocol.name in ["tcp", "udp"]:
-        port = rule.source_ports[0]
-        if port.is_single():
-            cmd_parts.extend(["--sport", str(port.number)])
-        elif port.is_range():
-            cmd_parts.extend(["--sport", f"{port.range_start}:{port.range_end}"])
+    sport_variants: List[List[str]] = []
+    if rule.protocol and rule.protocol.name in ("tcp", "udp") and rule.source_ports:
+        for port in rule.source_ports:
+            if port.is_single():
+                sport_variants.append(["--sport", str(port.number)])
+            elif port.is_range():
+                sport_variants.append(["--sport", f"{port.range_start}:{port.range_end}"])
+    sport_variants = sport_variants or [[]]
 
-    if rule.action == Action.ALLOW:
-        cmd_parts.extend(["-j", "ACCEPT"])
-    elif rule.action in (Action.DENY, Action.DROP):
-        cmd_parts.extend(["-j", "DROP"])
-    elif rule.action == Action.REJECT:
-        cmd_parts.extend(["-j", "REJECT"])
+    log_prefix = shlex.quote(f"[{rule.name or 'RULE'}] ")
 
-    if rule.log_traffic:
-        log_cmd = cmd_parts[:-2] + [
-            "-j", "LOG", "--log-prefix", f"[{rule.name or 'RULE'}] ",
-        ]
-        return [" ".join(log_cmd), " ".join(cmd_parts)]
+    def _action_parts() -> List[str]:
+        if rule.action == Action.ALLOW:
+            return ["-j", "ACCEPT"]
+        elif rule.action in (Action.DENY, Action.DROP):
+            return ["-j", "DROP"]
+        elif rule.action == Action.REJECT:
+            return ["-j", "REJECT"]
+        return []
 
-    return [" ".join(cmd_parts)]
+    action_parts = _action_parts()
+
+    commands: List[str] = []
+    for s, d, dp, sp in itertools.product(source_variants, dest_variants, dport_variants, sport_variants):
+        match = base_parts + s + d + dp + sp
+
+        if rule.log_traffic and action_parts:
+            commands.append(" ".join(match + ["-j", "LOG", "--log-prefix", log_prefix]))
+            commands.append(" ".join(match + action_parts))
+        elif rule.log_traffic or rule.action == Action.LOG:
+            commands.append(" ".join(match + ["-j", "LOG", "--log-prefix", log_prefix]))
+        else:
+            commands.append(" ".join(match + action_parts))
+
+    return commands
 
 
 class LinuxIptables(FirewallDevice):

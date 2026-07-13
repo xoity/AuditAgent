@@ -226,55 +226,44 @@ class RuleComparer:
 
         # Check destination ports
         if policy_rule.destination_ports:
-            port = policy_rule.destination_ports[0]
-            if port.is_single():
-                port_check = f"--dport {port.number}"
-                if port_check not in device_content:
-                    logger.debug(
-                        "Port mismatch: expected %s not found in device rule",
-                        port_check,
-                    )
-                    return False
+            if not any(
+                f"--dport {port.number}" in device_content
+                for port in policy_rule.destination_ports
+                if port.is_single()
+            ):
+                logger.debug(
+                    "Port mismatch: no policy destination port found in device rule"
+                )
+                return False
 
         # Check source IPs (simplified)
         if policy_rule.source_ips:
-            source_ip = policy_rule.source_ips[0]
-            # Use string conversion which works for both IPAddress and IPRange
-            ip_str = str(source_ip)
-
-            # Check if source IP is in the device rule
-            # Special case: 0.0.0.0/0 means "any" and may be omitted in iptables rules
-            if ip_str == "0.0.0.0/0":
-                # For "any" source, either -s 0.0.0.0/0 should be present OR no -s flag at all
-                source_check = f"-s {ip_str}"
+            source_any = any(str(ip) == "0.0.0.0/0" for ip in policy_rule.source_ips)
+            if source_any:
+                source_check = f"-s 0.0.0.0/0"
                 if source_check not in device_content and "-s " in device_content:
                     logger.debug(
                         "Source IP mismatch: expected %s not found in device rule",
                         source_check,
                     )
                     return False
-            else:
-                # Specific source IP must be present
-                source_check = f"-s {ip_str}"
-                if source_check not in device_content:
-                    logger.debug(
-                        "Source IP mismatch: expected %s not found in device rule",
-                        source_check,
-                    )
-                    return False
+            elif not any(
+                f"-s {str(ip)}" in device_content
+                for ip in policy_rule.source_ips
+            ):
+                logger.debug(
+                    "Source IP mismatch: no policy source IP found in device rule"
+                )
+                return False
 
         # Check destination IPs (simplified)
         if policy_rule.destination_ips:
-            dest_ip = policy_rule.destination_ips[0]
-            # Use string conversion which works for both IPAddress and IPRange
-            ip_str = str(dest_ip)
-
-            # Check if destination IP is in the device rule
-            dest_check = f"-d {ip_str}"
-            if dest_check not in device_content:
+            if not any(
+                f"-d {str(ip)}" in device_content
+                for ip in policy_rule.destination_ips
+            ):
                 logger.debug(
-                    "Destination IP mismatch: expected %s not found in device rule",
-                    dest_check,
+                    "Destination IP mismatch: no policy destination IP found in device rule"
                 )
                 return False
 
@@ -429,27 +418,27 @@ class RuleComparer:
 
         # Check destination ports
         if policy_rule.destination_ports:
-            port = policy_rule.destination_ports[0]
-            if port.is_single():
-                port_check = f"--dport {port.number}"
-                if port_check not in log_content:
-                    return False
+            if not any(
+                f"--dport {port.number}" in log_content
+                for port in policy_rule.destination_ports
+                if port.is_single()
+            ):
+                return False
 
         # Check source IPs
         if policy_rule.source_ips:
-            source_ip = policy_rule.source_ips[0]
-            ip_str = str(source_ip)
-            if ip_str != "0.0.0.0/0":  # Skip "any" source check
-                source_check = f"-s {ip_str}"
-                if source_check not in log_content:
-                    return False
+            if not any(
+                str(ip) == "0.0.0.0/0" or f"-s {str(ip)}" in log_content
+                for ip in policy_rule.source_ips
+            ):
+                return False
 
         # Check destination IPs
         if policy_rule.destination_ips:
-            dest_ip = policy_rule.destination_ips[0]
-            ip_str = str(dest_ip)
-            dest_check = f"-d {ip_str}"
-            if dest_check not in log_content:
+            if not any(
+                f"-d {str(ip)}" in log_content
+                for ip in policy_rule.destination_ips
+            ):
                 return False
 
         return True
@@ -516,16 +505,10 @@ class RuleComparer:
         """Check if a rule is Docker-related and should be ignored."""
         docker_indicators = [
             "docker",
-            "br-",
             "DOCKER",
-            "FORWARD",
-            "PREROUTING",
-            "POSTROUTING",
-            "MASQUERADE",
-            "conntrack",
-            "addrtype",
-            "DNAT",
-            "SNAT",
+            "DOCKER-USER",
+            "DOCKER-ISOLATION",
+            "br-",
         ]
         content_lower = rule_content.lower()
         return any(
@@ -709,7 +692,7 @@ class AuditEngine:
         elif report_format == "html":
             return self._generate_html_report(audit_result)
         elif report_format == "json":
-            return audit_result.json(indent=2)
+            return audit_result.model_dump_json(indent=2)
         else:
             raise ValueError(f"Unsupported report format: {report_format}")
 

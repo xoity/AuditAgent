@@ -641,7 +641,6 @@ class RemediationExecutor:
         results = []
         completed = 0
         failed = 0
-        skipped = 0
         rolled_back = 0
 
         # Execute actions in order
@@ -687,7 +686,7 @@ class RemediationExecutor:
             overall_success_rate=success_rate,
             actions_completed=completed,
             actions_failed=failed,
-            actions_skipped=skipped,
+            actions_skipped=0,
             actions_rolled_back=rolled_back,
             total_execution_time=execution_time,
             execution_timestamp=datetime.datetime.now().isoformat(),

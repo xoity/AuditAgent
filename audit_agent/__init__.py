@@ -5,9 +5,12 @@ A Python framework for declaratively defining and enforcing iptables firewall
 policies across Linux servers.
 """
 
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 
-__version__ = version("audit-agent")
+try:
+    __version__ = version("audit-agent")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
 __author__ = "Your Name"
 __email__ = "your.email@example.com"
 
