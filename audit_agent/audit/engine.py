@@ -240,7 +240,7 @@ class RuleComparer:
         if policy_rule.source_ips:
             source_any = any(str(ip) == "0.0.0.0/0" for ip in policy_rule.source_ips)
             if source_any:
-                source_check = f"-s 0.0.0.0/0"
+                source_check = "-s 0.0.0.0/0"
                 if source_check not in device_content and "-s " in device_content:
                     logger.debug(
                         "Source IP mismatch: expected %s not found in device rule",
