@@ -190,3 +190,6 @@ htmlcov/
 # Build artifacts
 *.whl
 *.tar.gz
+
+# AuditAgent config
+.audit-agent/

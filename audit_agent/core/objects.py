@@ -6,7 +6,7 @@ import re
 from ipaddress import AddressValueError, IPv4Address, IPv4Network
 from typing import ClassVar, List, Optional, Union
 
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 
 
 class IPAddress(BaseModel):
@@ -15,7 +15,8 @@ class IPAddress(BaseModel):
 
     address: str
 
-    @validator("address")
+    @field_validator("address")
+    @classmethod
     def validate_ip(cls, v):
         try:
             IPv4Address(v)
@@ -33,7 +34,8 @@ class IPRange(BaseModel):
 
     cidr: str
 
-    @validator("cidr")
+    @field_validator("cidr")
+    @classmethod
     def validate_cidr(cls, v):
         try:
             IPv4Network(v, strict=False)
@@ -62,13 +64,15 @@ class Port(BaseModel):
     range_end: Optional[int] = None
     name: Optional[str] = None  # Named ports like 'ssh', 'http', 'https'
 
-    @validator("number")
+    @field_validator("number")
+    @classmethod
     def validate_port_number(cls, v):
         if v is not None and (v < 1 or v > 65535):
             raise ValueError(f"Port number must be between 1 and 65535, got {v}")
         return v
 
-    @validator("range_start", "range_end")
+    @field_validator("range_start", "range_end")
+    @classmethod
     def validate_port_range(cls, v):
         if v is not None and (v < 1 or v > 65535):
             raise ValueError(f"Port range must be between 1 and 65535, got {v}")
@@ -124,7 +128,8 @@ class Zone(BaseModel):
     description: Optional[str] = None
     networks: List[IPRange] = []
 
-    @validator("name")
+    @field_validator("name")
+    @classmethod
     def validate_zone_name(cls, v):
         if not re.match(r"^[a-zA-Z0-9_-]+$", v):
             raise ValueError(
@@ -159,7 +164,8 @@ class Protocol(BaseModel):
     ICMP: ClassVar[str] = "icmp"
     ANY: ClassVar[str] = "any"
 
-    @validator("name")
+    @field_validator("name")
+    @classmethod
     def validate_protocol_name(cls, v):
         valid_protocols = ["tcp", "udp", "icmp", "esp", "ah", "gre", "any"]
         if v.lower() not in valid_protocols:

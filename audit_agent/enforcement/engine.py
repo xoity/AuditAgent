@@ -456,13 +456,6 @@ class EnforcementPlanner:
                 logger.debug("Unknown iptables rule format: %s", rule_config)
                 return []
 
-        # Handle Cisco-style rules
-        elif "access-list" in rule_config:
-            # For Cisco devices, use "no" prefix
-            command = f"no {rule_config}"
-            logger.debug("Generated Cisco delete command: %s", command)
-            return [command]
-
         logger.debug("No matching rule format found")
         return []
 

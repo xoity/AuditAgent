@@ -3,10 +3,12 @@ Linux iptables firewall device implementation.
 """
 
 import re
+import shlex
 from typing import List, Optional
 
 from ..core.credentials import credential_manager
 from ..core.logging_config import get_logger
+from ..core.objects import IPAddress, IPRange
 from ..core.rules import Action, BaseRule, FirewallRule
 from .base import (
     CommandResult,
@@ -18,6 +20,90 @@ from .base import (
 )
 
 logger = get_logger(__name__)
+
+
+def firewall_rule_to_commands(rule: FirewallRule) -> List[str]:
+    """Convert a FirewallRule to iptables command strings."""
+    if rule.direction.value == "bidirectional":
+        return _build_iptables_rule(rule, "INPUT") + _build_iptables_rule(
+            rule, "OUTPUT"
+        )
+    chain = "INPUT" if rule.direction.value == "inbound" else "OUTPUT"
+    return _build_iptables_rule(rule, chain)
+
+
+def _build_iptables_rule(rule: FirewallRule, chain: str) -> List[str]:
+    """Build iptables rule for a specific chain. Expands multiple IPs/ports into separate rules."""
+    import itertools
+
+    base_parts = ["iptables", "-A", chain]
+    if rule.protocol and rule.protocol.name != "any":
+        base_parts.extend(["-p", rule.protocol.name])
+
+    def _ip_flag(ip_val, flag: str) -> List[str]:
+        if isinstance(ip_val, IPAddress):
+            return [flag, ip_val.address]
+        elif isinstance(ip_val, IPRange):
+            return [flag, ip_val.cidr]
+        return []
+
+    source_variants = [_ip_flag(ip, "-s") for ip in rule.source_ips] or [[]]
+    dest_variants = [_ip_flag(ip, "-d") for ip in rule.destination_ips] or [[]]
+
+    dport_variants: List[List[str]] = []
+    if (
+        rule.protocol
+        and rule.protocol.name in ("tcp", "udp")
+        and rule.destination_ports
+    ):
+        for port in rule.destination_ports:
+            if port.is_single():
+                dport_variants.append(["--dport", str(port.number)])
+            elif port.is_range():
+                dport_variants.append(
+                    ["--dport", f"{port.range_start}:{port.range_end}"]
+                )
+    dport_variants = dport_variants or [[]]
+
+    sport_variants: List[List[str]] = []
+    if rule.protocol and rule.protocol.name in ("tcp", "udp") and rule.source_ports:
+        for port in rule.source_ports:
+            if port.is_single():
+                sport_variants.append(["--sport", str(port.number)])
+            elif port.is_range():
+                sport_variants.append(
+                    ["--sport", f"{port.range_start}:{port.range_end}"]
+                )
+    sport_variants = sport_variants or [[]]
+
+    log_prefix = shlex.quote(f"[{rule.name or 'RULE'}] ")
+
+    def _action_parts() -> List[str]:
+        if rule.action == Action.ALLOW:
+            return ["-j", "ACCEPT"]
+        elif rule.action in (Action.DENY, Action.DROP):
+            return ["-j", "DROP"]
+        elif rule.action == Action.REJECT:
+            return ["-j", "REJECT"]
+        return []
+
+    action_parts = _action_parts()
+
+    commands: List[str] = []
+    for s, d, dp, sp in itertools.product(
+        source_variants, dest_variants, dport_variants, sport_variants
+    ):
+        match = base_parts + s + d + dp + sp
+
+        if rule.log_traffic and action_parts:
+            commands.append(" ".join(match + ["-j", "LOG", "--log-prefix", log_prefix]))
+            commands.append(" ".join(match + action_parts))
+        elif rule.log_traffic or rule.action == Action.LOG:
+            commands.append(" ".join(match + ["-j", "LOG", "--log-prefix", log_prefix]))
+        else:
+            commands.append(" ".join(match + action_parts))
+
+    return commands
 
 
 class LinuxIptables(FirewallDevice):
@@ -242,54 +328,6 @@ class LinuxIptables(FirewallDevice):
             self._ssh_client = None
         self._connected = False
 
-    @staticmethod
-    def _validate_command_safety(command: str) -> bool:
-        """
-        Validate that a command doesn't contain obvious injection attempts.
-        Returns True if command appears safe, False otherwise.
-        """
-        # Allowed safe commands that can use pipes and redirects
-        safe_command_patterns = [
-            "iptables",
-            "ip6tables",
-            "base64",
-            "echo",
-            "printf",
-            "cat /etc/",
-            "hostname",
-            "uname",
-            "grep",
-            "awk",
-            "sed",
-            "sort",
-            "uniq",
-            "wc",
-            "ip addr",
-            "ip link",
-        ]
-
-        # Check if command starts with a safe pattern
-        is_safe_base = any(
-            command.strip().startswith(pattern) for pattern in safe_command_patterns
-        )
-
-        # Additional checks for suspicious patterns
-        suspicious = [
-            "rm ",
-            "wget",
-            "curl http",
-            "nc ",
-            "netcat",
-            "/dev/tcp",
-            "mkfifo",
-            ">/",
-            "chmod 777",
-            "passwd",
-        ]
-        has_suspicious = any(pattern in command.lower() for pattern in suspicious)
-
-        return is_safe_base and not has_suspicious
-
     async def execute_command(
         self, command: str, use_sudo: Optional[bool] = None
     ) -> CommandResult:
@@ -422,20 +460,10 @@ class LinuxIptables(FirewallDevice):
 
             execution_time = time.time() - start_time
 
-            # Decode output with error handling
-            try:
-                output = stdout_data.decode("utf-8")
-            except UnicodeDecodeError:
-                output = stdout_data.decode("utf-8", errors="replace")
-
-            try:
-                error = stderr_data.decode("utf-8") if stderr_data else None
-            except UnicodeDecodeError:
-                error = (
-                    stderr_data.decode("utf-8", errors="replace")
-                    if stderr_data
-                    else None
-                )
+            output = stdout_data.decode("utf-8", errors="replace")
+            error = (
+                stderr_data.decode("utf-8", errors="replace") if stderr_data else None
+            )
 
             result = CommandResult(
                 command=original_command,
@@ -465,36 +493,7 @@ class LinuxIptables(FirewallDevice):
             )
 
     def _build_shell_command(self, command: str, use_sudo: bool = False) -> str:
-        """Build a shell command with proper escaping."""
-        import shlex
-
-        # Parse the command to extract the base command and arguments
-        # This helps prevent injection while maintaining functionality
-        try:
-            shlex.split(command)
-        except ValueError:
-            # If parsing fails, treat as a single command (safer)
-            pass
-
-        # Build command safely
-        if use_sudo:
-            # Use sudo with the command, ensuring proper escaping
-            # Build the command array for sudo
-            safe_command = "sudo " + command
-        else:
-            safe_command = command
-
-        # Return the command with error handling
-        # Note: We use the original command here as it's being passed to exec_command
-        # which provides some level of isolation, but we've validated it first
-        return f"set -e && {safe_command}"
-
-    @staticmethod
-    def _escape_shell_string(string: str) -> str:
-        """Escape a string for safe shell execution"""
-        import shlex
-
-        return shlex.quote(string)
+        return f"set -e && {'sudo ' if use_sudo else ''}{command}"
 
     async def execute_commands_batch(
         self, commands: List[str], stop_on_error: bool = True
@@ -514,37 +513,6 @@ class LinuxIptables(FirewallDevice):
                 break
 
         return results
-
-    async def execute_script(
-        self, script_content: str, use_sudo: bool = False
-    ) -> CommandResult:
-        """Execute a shell script"""
-        import base64
-        import shlex
-
-        # Encode script content to avoid shell escaping issues
-        script_b64 = base64.b64encode(script_content.encode("utf-8")).decode("ascii")
-
-        # Validate base64 string contains only valid characters
-        if not all(
-            c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
-            for c in script_b64
-        ):
-            return CommandResult(
-                command="execute_script",
-                success=False,
-                output="",
-                error="Invalid script content encoding",
-                execution_time=0.0,
-            )
-
-        # Create a command that decodes and executes the script
-        # Use printf instead of echo to avoid interpretation issues
-        decode_and_run = (
-            f"printf '%s' {shlex.quote(script_b64)} | base64 -d | /bin/bash"
-        )
-
-        return await self.execute_command(decode_and_run, use_sudo=use_sudo)
 
     async def get_configuration(self) -> DeviceConfiguration:
         """Get the current iptables configuration."""
@@ -796,130 +764,9 @@ class LinuxIptables(FirewallDevice):
         return zones
 
     def rule_to_commands(self, rule: BaseRule) -> List[str]:
-        """Convert a rule to iptables commands."""
-        logger.debug("Converting rule to commands")
-        logger.debug("Rule type: %s", type(rule).__name__)
-        logger.debug("Rule name: %s", getattr(rule, "name", "unnamed"))
-        logger.debug("Is FirewallRule: %s", isinstance(rule, FirewallRule))
-
-        if hasattr(rule, "__dict__"):
-            logger.debug("Rule attributes: %s", rule.__dict__)
-
         if not isinstance(rule, FirewallRule):
-            logger.debug("Rule is not a FirewallRule, returning empty list")
             return []
-
-        logger.debug("Processing FirewallRule")
-        logger.debug("Direction: %s", getattr(rule, "direction", "unknown"))
-        logger.debug("Action: %s", getattr(rule, "action", "unknown"))
-        logger.debug("Protocol: %s", getattr(rule, "protocol", "unknown"))
-
-        # Determine chain based on direction
-        chain = "INPUT"
-        if hasattr(rule, "direction") and rule.direction.value == "outbound":
-            chain = "OUTPUT"
-        elif hasattr(rule, "direction") and rule.direction.value == "bidirectional":
-            # Create rules for both directions
-            logger.debug("Creating bidirectional rules for INPUT and OUTPUT")
-            input_rules = self._build_iptables_rule(rule, "INPUT")
-            output_rules = self._build_iptables_rule(rule, "OUTPUT")
-            combined_rules = input_rules + output_rules
-            logger.debug(
-                "Generated %s bidirectional commands: %s",
-                len(combined_rules),
-                combined_rules,
-            )
-            return combined_rules
-
-        logger.debug("Creating rule for chain: %s", chain)
-        generated_commands = self._build_iptables_rule(rule, chain)
-        logger.debug(
-            "Generated %s commands: %s", len(generated_commands), generated_commands
-        )
-        return generated_commands
-
-    @staticmethod
-    def _build_iptables_rule(rule: FirewallRule, chain: str) -> List[str]:
-        """Build iptables rule for a specific chain."""
-        logger.debug("Building iptables rule for chain: %s", chain)
-        cmd_parts = ["iptables", "-A", chain]
-
-        # Protocol
-        if rule.protocol:
-            logger.debug("Adding protocol: %s", rule.protocol.name)
-            cmd_parts.extend(["-p", rule.protocol.name])
-
-        # Source IPs
-        if rule.source_ips:
-            source_ip = rule.source_ips[0]  # Use first source IP
-            logger.debug("Adding source IP: %s", source_ip)
-            from ..core.objects import IPAddress, IPRange
-
-            if isinstance(source_ip, IPAddress):
-                cmd_parts.extend(["-s", source_ip.address])
-            elif isinstance(source_ip, IPRange):
-                cmd_parts.extend(["-s", source_ip.cidr])
-
-        # Destination IPs
-        if rule.destination_ips:
-            dest_ip = rule.destination_ips[0]  # Use first destination IP
-            logger.debug("Adding destination IP: %s", dest_ip)
-            from ..core.objects import IPAddress, IPRange
-
-            if isinstance(dest_ip, IPAddress):
-                cmd_parts.extend(["-d", dest_ip.address])
-            elif isinstance(dest_ip, IPRange):
-                cmd_parts.extend(["-d", dest_ip.cidr])
-
-        # Destination ports
-        if (
-            rule.destination_ports
-            and rule.protocol
-            and rule.protocol.name in ["tcp", "udp"]
-        ):
-            port = rule.destination_ports[0]
-            logger.debug("Adding destination port: %s", port)
-            if port.is_single():
-                cmd_parts.extend(["--dport", str(port.number)])
-            elif port.is_range():
-                cmd_parts.extend(["--dport", f"{port.range_start}:{port.range_end}"])
-
-        # Source ports
-        if rule.source_ports and rule.protocol and rule.protocol.name in ["tcp", "udp"]:
-            port = rule.source_ports[0]
-            logger.debug("Adding source port: %s", port)
-            if port.is_single():
-                cmd_parts.extend(["--sport", str(port.number)])
-            elif port.is_range():
-                cmd_parts.extend(["--sport", f"{port.range_start}:{port.range_end}"])
-
-        # Action
-        logger.debug("Adding action: %s", rule.action)
-        if rule.action == Action.ALLOW:
-            cmd_parts.extend(["-j", "ACCEPT"])
-        elif rule.action == Action.DENY:
-            cmd_parts.extend(["-j", "DROP"])
-        elif rule.action == Action.DROP:
-            cmd_parts.extend(["-j", "DROP"])
-        elif rule.action == Action.REJECT:
-            cmd_parts.extend(["-j", "REJECT"])
-
-        # Logging
-        if rule.log_traffic:
-            logger.debug("Adding logging")
-            log_cmd = cmd_parts[:-2] + [
-                "-j",
-                "LOG",
-                "--log-prefix",
-                f"[{rule.name or 'RULE'}] ",
-            ]
-            final_commands = [" ".join(log_cmd), " ".join(cmd_parts)]
-            logger.debug("Final commands with logging: %s", final_commands)
-            return final_commands
-
-        final_command = [" ".join(cmd_parts)]
-        logger.debug("Final command: %s", final_command)
-        return final_command
+        return firewall_rule_to_commands(rule)
 
     def validate_commands(self, commands: List[str]) -> List[str]:
         """Validate iptables commands."""

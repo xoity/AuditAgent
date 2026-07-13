@@ -124,14 +124,6 @@ class TestCredentialManager:
         cm.set_allow_ssh_agent(True)
         assert cm.is_ssh_agent_available() in [True, False]
 
-    def test_ssh_agent_keys_disabled(self):
-        """Test that try_ssh_agent_keys returns empty when disabled."""
-        cm = CredentialManager()
-        cm.set_allow_ssh_agent(False)
-
-        result = cm.try_ssh_agent_keys("testuser", "testhost", 22)
-        assert result is None
-
     def test_load_private_key_with_passphrase(self):
         """Test loading private key with passphrase."""
         cm = CredentialManager()

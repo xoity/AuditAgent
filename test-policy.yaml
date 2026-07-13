@@ -1,0 +1,45 @@
+metadata:
+  name: "test-vm-policy"
+  version: "1.0"
+  description: "Test policy for Alpine VM - SSH + HTTP"
+  author: "AuditAgent"
+
+firewall_rules:
+  - name: "allow-ssh"
+    description: "Allow SSH access on port 22"
+    enabled: true
+    priority: 10
+    action: "allow"
+    direction: "inbound"
+    protocol:
+      name: "tcp"
+      number: 6
+    destination_ports:
+      - number: 22
+    log_traffic: false
+
+  - name: "allow-http"
+    description: "Allow HTTP access on port 80"
+    enabled: true
+    priority: 20
+    action: "allow"
+    direction: "inbound"
+    protocol:
+      name: "tcp"
+      number: 6
+    destination_ports:
+      - number: 80
+    log_traffic: false
+
+  - name: "block-telnet"
+    description: "Block insecure telnet access"
+    enabled: true
+    priority: 50
+    action: "deny"
+    direction: "inbound"
+    protocol:
+      name: "tcp"
+      number: 6
+    destination_ports:
+      - number: 23
+    log_traffic: true

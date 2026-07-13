@@ -5,7 +5,7 @@ Advanced automated remediation modules for fixing detected compliance issues.
 import datetime
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -48,7 +48,6 @@ class RemediationAction:
     commands: List[str]
     rollback_commands: List[str]
     risk_level: str
-    dependencies: List[str]  # IDs of actions this depends on
     estimated_duration: float  # seconds
     validation_commands: List[str]  # Commands to verify fix worked
     description: str
@@ -87,14 +86,6 @@ class RemediationPlan(BaseModel):
     risk_assessment: str
     created_timestamp: str
 
-    def get_actions_by_device(self, device: NetworkDevice) -> List[RemediationAction]:
-        """Get all actions for a specific device."""
-        return [action for action in self.actions if action.device == device]
-
-    def get_actions_by_risk_level(self, risk_level: str) -> List[RemediationAction]:
-        """Get all actions of a specific risk level."""
-        return [action for action in self.actions if action.risk_level == risk_level]
-
 
 class RemediationPlanResult(BaseModel):
     """Result of executing a remediation plan."""
@@ -121,7 +112,7 @@ class RemediationValidator:
     """Validates remediation actions before and after execution."""
 
     def __init__(self):
-        self.validation_cache: Dict[str, bool] = {}
+        pass
 
     async def validate_action_pre_execution(
         self, action: RemediationAction
@@ -343,7 +334,6 @@ class RemediationPlanner:
             commands=commands,
             rollback_commands=rollback_commands,
             risk_level=self._assess_rule_risk_level(rule, "add"),
-            dependencies=[],
             estimated_duration=5.0,  # seconds
             validation_commands=validation_commands,
             description=f"Add missing rule: {rule.name or rule.id}",
@@ -380,7 +370,6 @@ class RemediationPlanner:
             commands=commands,
             rollback_commands=rollback_commands,
             risk_level="medium",
-            dependencies=[],
             estimated_duration=3.0,
             validation_commands=validation_commands,
             description=f"Remove extra rule: {issue.current_config[:50]}...",
@@ -427,7 +416,6 @@ class RemediationPlanner:
             commands=commands,
             rollback_commands=rollback_commands,
             risk_level=self._assess_rule_risk_level(rule, "modify"),
-            dependencies=[],
             estimated_duration=8.0,
             validation_commands=validation_commands,
             description=f"Modify rule: {rule.name or rule.id}",
@@ -461,7 +449,6 @@ class RemediationPlanner:
             commands=commands,
             rollback_commands=rollback_commands,
             risk_level="high",  # Connectivity fixes are risky
-            dependencies=[],
             estimated_duration=15.0,
             validation_commands=validation_commands,
             description="Fix connectivity issues",
@@ -640,7 +627,6 @@ class RemediationExecutor:
 
     def __init__(self):
         self.validator = RemediationValidator()
-        self.execution_results: Dict[str, RemediationResult] = {}
 
     async def execute_remediation_plan(
         self, plan: RemediationPlan, dry_run: bool = True, stop_on_error: bool = True
@@ -656,7 +642,6 @@ class RemediationExecutor:
         results = []
         completed = 0
         failed = 0
-        skipped = 0
         rolled_back = 0
 
         # Execute actions in order
@@ -664,15 +649,6 @@ class RemediationExecutor:
             action = next((a for a in plan.actions if a.id == action_id), None)
             if not action:
                 logger.warning("Action %s not found in plan", action_id)
-                continue
-
-            # Check if dependencies are satisfied
-            if not self._dependencies_satisfied(action, results):
-                logger.warning(
-                    "Dependencies not satisfied for action %s, skipping", action_id
-                )
-                action.status = RemediationStatus.SKIPPED
-                skipped += 1
                 continue
 
             # Execute the action
@@ -711,7 +687,7 @@ class RemediationExecutor:
             overall_success_rate=success_rate,
             actions_completed=completed,
             actions_failed=failed,
-            actions_skipped=skipped,
+            actions_skipped=0,
             actions_rolled_back=rolled_back,
             total_execution_time=execution_time,
             execution_timestamp=datetime.datetime.now().isoformat(),
@@ -844,19 +820,6 @@ class RemediationExecutor:
                 "Rollback failed for action %s with exception: %s", action.id, e
             )
             return False
-
-    def _dependencies_satisfied(
-        self, action: RemediationAction, completed_results: List[RemediationResult]
-    ) -> bool:
-        """Check if all dependencies for an action are satisfied."""
-        if not action.dependencies:
-            return True
-
-        completed_action_ids = {
-            result.action_id for result in completed_results if result.success
-        }
-
-        return all(dep_id in completed_action_ids for dep_id in action.dependencies)
 
 
 class AutomatedRemediationManager:

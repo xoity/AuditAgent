@@ -226,55 +226,42 @@ class RuleComparer:
 
         # Check destination ports
         if policy_rule.destination_ports:
-            port = policy_rule.destination_ports[0]
-            if port.is_single():
-                port_check = f"--dport {port.number}"
-                if port_check not in device_content:
-                    logger.debug(
-                        "Port mismatch: expected %s not found in device rule",
-                        port_check,
-                    )
-                    return False
+            if not any(
+                f"--dport {port.number}" in device_content
+                for port in policy_rule.destination_ports
+                if port.is_single()
+            ):
+                logger.debug(
+                    "Port mismatch: no policy destination port found in device rule"
+                )
+                return False
 
         # Check source IPs (simplified)
         if policy_rule.source_ips:
-            source_ip = policy_rule.source_ips[0]
-            # Use string conversion which works for both IPAddress and IPRange
-            ip_str = str(source_ip)
-
-            # Check if source IP is in the device rule
-            # Special case: 0.0.0.0/0 means "any" and may be omitted in iptables rules
-            if ip_str == "0.0.0.0/0":
-                # For "any" source, either -s 0.0.0.0/0 should be present OR no -s flag at all
-                source_check = f"-s {ip_str}"
+            source_any = any(str(ip) == "0.0.0.0/0" for ip in policy_rule.source_ips)
+            if source_any:
+                source_check = "-s 0.0.0.0/0"
                 if source_check not in device_content and "-s " in device_content:
                     logger.debug(
                         "Source IP mismatch: expected %s not found in device rule",
                         source_check,
                     )
                     return False
-            else:
-                # Specific source IP must be present
-                source_check = f"-s {ip_str}"
-                if source_check not in device_content:
-                    logger.debug(
-                        "Source IP mismatch: expected %s not found in device rule",
-                        source_check,
-                    )
-                    return False
+            elif not any(
+                f"-s {str(ip)}" in device_content for ip in policy_rule.source_ips
+            ):
+                logger.debug(
+                    "Source IP mismatch: no policy source IP found in device rule"
+                )
+                return False
 
         # Check destination IPs (simplified)
         if policy_rule.destination_ips:
-            dest_ip = policy_rule.destination_ips[0]
-            # Use string conversion which works for both IPAddress and IPRange
-            ip_str = str(dest_ip)
-
-            # Check if destination IP is in the device rule
-            dest_check = f"-d {ip_str}"
-            if dest_check not in device_content:
+            if not any(
+                f"-d {str(ip)}" in device_content for ip in policy_rule.destination_ips
+            ):
                 logger.debug(
-                    "Destination IP mismatch: expected %s not found in device rule",
-                    dest_check,
+                    "Destination IP mismatch: no policy destination IP found in device rule"
                 )
                 return False
 
@@ -429,27 +416,26 @@ class RuleComparer:
 
         # Check destination ports
         if policy_rule.destination_ports:
-            port = policy_rule.destination_ports[0]
-            if port.is_single():
-                port_check = f"--dport {port.number}"
-                if port_check not in log_content:
-                    return False
+            if not any(
+                f"--dport {port.number}" in log_content
+                for port in policy_rule.destination_ports
+                if port.is_single()
+            ):
+                return False
 
         # Check source IPs
         if policy_rule.source_ips:
-            source_ip = policy_rule.source_ips[0]
-            ip_str = str(source_ip)
-            if ip_str != "0.0.0.0/0":  # Skip "any" source check
-                source_check = f"-s {ip_str}"
-                if source_check not in log_content:
-                    return False
+            if not any(
+                str(ip) == "0.0.0.0/0" or f"-s {str(ip)}" in log_content
+                for ip in policy_rule.source_ips
+            ):
+                return False
 
         # Check destination IPs
         if policy_rule.destination_ips:
-            dest_ip = policy_rule.destination_ips[0]
-            ip_str = str(dest_ip)
-            dest_check = f"-d {ip_str}"
-            if dest_check not in log_content:
+            if not any(
+                f"-d {str(ip)}" in log_content for ip in policy_rule.destination_ips
+            ):
                 return False
 
         return True
@@ -473,9 +459,7 @@ class RuleComparer:
 
         for device_rule in device_firewall_rules:
             # Skip Docker-related rules unless they conflict with policy
-            if self._is_docker_related_rule(
-                device_rule.content
-            ) and not self._conflicts_with_policy(device_rule, policy_firewall_rules):
+            if self._is_docker_related_rule(device_rule.content):
                 logger.debug("Skipping Docker-related rule: %s", device_rule.content)
                 continue
 
@@ -516,16 +500,10 @@ class RuleComparer:
         """Check if a rule is Docker-related and should be ignored."""
         docker_indicators = [
             "docker",
-            "br-",
             "DOCKER",
-            "FORWARD",
-            "PREROUTING",
-            "POSTROUTING",
-            "MASQUERADE",
-            "conntrack",
-            "addrtype",
-            "DNAT",
-            "SNAT",
+            "DOCKER-USER",
+            "DOCKER-ISOLATION",
+            "br-",
         ]
         content_lower = rule_content.lower()
         return any(
@@ -544,15 +522,6 @@ class RuleComparer:
         ]
         content_lower = rule_content.lower()
         return any(indicator in content_lower for indicator in system_indicators)
-
-    @staticmethod
-    def _conflicts_with_policy(
-        device_rule: ConfigurationItem, policy_rules: List[FirewallRule]
-    ) -> bool:
-        """Check if a Docker rule conflicts with explicit policy rules."""
-        # This is a placeholder for more sophisticated conflict detection
-        # For now, we assume Docker rules don't conflict with policy rules
-        return False
 
     def _device_rule_covered_by_policy(
         self, device_rule: ConfigurationItem, policy_rules: List[FirewallRule]
@@ -718,7 +687,7 @@ class AuditEngine:
         elif report_format == "html":
             return self._generate_html_report(audit_result)
         elif report_format == "json":
-            return audit_result.json(indent=2)
+            return audit_result.model_dump_json(indent=2)
         else:
             raise ValueError(f"Unsupported report format: {report_format}")
 
@@ -760,97 +729,35 @@ class AuditEngine:
             report.append("DETAILED ISSUES BY SEVERITY:")
             report.append("=" * 80)
 
-            # Critical Issues
-            if critical_issues:
-                report.append("")
-                report.append("CRITICAL ISSUES:")
-                report.append("-" * 40)
-                for i, issue in enumerate(critical_issues, 1):
-                    report.append(f"{i}. {issue.description}")
-                    report.append(f"   Device: {issue.device}")
-                    report.append(f"   Type: {issue.issue_type}")
-                    if issue.rule_name:
-                        report.append(f"   Rule: {issue.rule_name}")
-                    report.append(f"   Recommendation: {issue.recommendation}")
-                    if issue.current_config:
-                        report.append(f"   Current Config: {issue.current_config}")
-                    if issue.expected_config:
-                        report.append("   Expected Config:")
-                        formatted_config = self._format_firewall_rule(
-                            issue.expected_config
-                        )
-                        for line in formatted_config.split("\n"):
-                            report.append(f"     {line}")
+            # Severity-ordered issues
+            severity_sections = [
+                ("CRITICAL ISSUES:", critical_issues),
+                ("HIGH PRIORITY ISSUES:", high_issues),
+                ("MEDIUM PRIORITY ISSUES:", medium_issues),
+                ("LOW PRIORITY ISSUES:", low_issues),
+            ]
+            for section_label, issues_list in severity_sections:
+                if issues_list:
                     report.append("")
-
-            # High Issues
-            if high_issues:
-                report.append("")
-                report.append("HIGH PRIORITY ISSUES:")
-                report.append("-" * 40)
-                for i, issue in enumerate(high_issues, 1):
-                    report.append(f"{i}. {issue.description}")
-                    report.append(f"   Device: {issue.device}")
-                    report.append(f"   Type: {issue.issue_type}")
-                    if issue.rule_name:
-                        report.append(f"   Rule: {issue.rule_name}")
-                    report.append(f"   Recommendation: {issue.recommendation}")
-                    if issue.current_config:
-                        report.append(f"   Current Config: {issue.current_config}")
-                    if issue.expected_config:
-                        report.append("   Expected Config:")
-                        formatted_config = self._format_firewall_rule(
-                            issue.expected_config
-                        )
-                        for line in formatted_config.split("\n"):
-                            report.append(f"     {line}")
-                    report.append("")
-
-            # Medium Issues
-            if medium_issues:
-                report.append("")
-                report.append("MEDIUM PRIORITY ISSUES:")
-                report.append("-" * 40)
-                for i, issue in enumerate(medium_issues, 1):
-                    report.append(f"{i}. {issue.description}")
-                    report.append(f"   Device: {issue.device}")
-                    report.append(f"   Type: {issue.issue_type}")
-                    if issue.rule_name:
-                        report.append(f"   Rule: {issue.rule_name}")
-                    report.append(f"   Recommendation: {issue.recommendation}")
-                    if issue.current_config:
-                        report.append(f"   Current Config: {issue.current_config}")
-                    if issue.expected_config:
-                        report.append("   Expected Config:")
-                        formatted_config = self._format_firewall_rule(
-                            issue.expected_config
-                        )
-                        for line in formatted_config.split("\n"):
-                            report.append(f"     {line}")
-                    report.append("")
-
-            # Low Issues
-            if low_issues:
-                report.append("")
-                report.append("LOW PRIORITY ISSUES:")
-                report.append("-" * 40)
-                for i, issue in enumerate(low_issues, 1):
-                    report.append(f"{i}. {issue.description}")
-                    report.append(f"   Device: {issue.device}")
-                    report.append(f"   Type: {issue.issue_type}")
-                    if issue.rule_name:
-                        report.append(f"   Rule: {issue.rule_name}")
-                    report.append(f"   Recommendation: {issue.recommendation}")
-                    if issue.current_config:
-                        report.append(f"   Current Config: {issue.current_config}")
-                    if issue.expected_config:
-                        report.append("   Expected Config:")
-                        formatted_config = self._format_firewall_rule(
-                            issue.expected_config
-                        )
-                        for line in formatted_config.split("\n"):
-                            report.append(f"     {line}")
-                    report.append("")
+                    report.append(section_label)
+                    report.append("-" * 40)
+                    for i, issue in enumerate(issues_list, 1):
+                        report.append(f"{i}. {issue.description}")
+                        report.append(f"   Device: {issue.device}")
+                        report.append(f"   Type: {issue.issue_type}")
+                        if issue.rule_name:
+                            report.append(f"   Rule: {issue.rule_name}")
+                        report.append(f"   Recommendation: {issue.recommendation}")
+                        if issue.current_config:
+                            report.append(f"   Current Config: {issue.current_config}")
+                        if issue.expected_config:
+                            report.append("   Expected Config:")
+                            formatted_config = self._format_firewall_rule(
+                                issue.expected_config
+                            )
+                            for line in formatted_config.split("\n"):
+                                report.append(f"     {line}")
+                        report.append("")
 
             report.append("=" * 80)
             report.append("")
