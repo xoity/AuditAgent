@@ -122,5 +122,3 @@ def get_logger(name: str) -> logging.Logger:
             name = f"audit_agent.{name}"
 
     return logging.getLogger(name)
-
-

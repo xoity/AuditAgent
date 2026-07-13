@@ -86,6 +86,7 @@ class RemediationPlan(BaseModel):
     risk_assessment: str
     created_timestamp: str
 
+
 class RemediationPlanResult(BaseModel):
     """Result of executing a remediation plan."""
 
@@ -819,7 +820,6 @@ class RemediationExecutor:
                 "Rollback failed for action %s with exception: %s", action.id, e
             )
             return False
-
 
 
 class AutomatedRemediationManager:

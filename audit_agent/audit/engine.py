@@ -248,8 +248,7 @@ class RuleComparer:
                     )
                     return False
             elif not any(
-                f"-s {str(ip)}" in device_content
-                for ip in policy_rule.source_ips
+                f"-s {str(ip)}" in device_content for ip in policy_rule.source_ips
             ):
                 logger.debug(
                     "Source IP mismatch: no policy source IP found in device rule"
@@ -259,8 +258,7 @@ class RuleComparer:
         # Check destination IPs (simplified)
         if policy_rule.destination_ips:
             if not any(
-                f"-d {str(ip)}" in device_content
-                for ip in policy_rule.destination_ips
+                f"-d {str(ip)}" in device_content for ip in policy_rule.destination_ips
             ):
                 logger.debug(
                     "Destination IP mismatch: no policy destination IP found in device rule"
@@ -436,8 +434,7 @@ class RuleComparer:
         # Check destination IPs
         if policy_rule.destination_ips:
             if not any(
-                f"-d {str(ip)}" in log_content
-                for ip in policy_rule.destination_ips
+                f"-d {str(ip)}" in log_content for ip in policy_rule.destination_ips
             ):
                 return False
 
@@ -462,9 +459,7 @@ class RuleComparer:
 
         for device_rule in device_firewall_rules:
             # Skip Docker-related rules unless they conflict with policy
-            if self._is_docker_related_rule(
-                device_rule.content
-            ):
+            if self._is_docker_related_rule(device_rule.content):
                 logger.debug("Skipping Docker-related rule: %s", device_rule.content)
                 continue
 

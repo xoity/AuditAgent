@@ -193,5 +193,3 @@ class FirewallDevice(NetworkDevice):
     async def get_zones(self) -> List[str]:
         """Get all security zones from the device."""
         pass
-
-

@@ -38,6 +38,7 @@ class AIConfig(BaseModel):
 
     default_provider: AIProvider = Field(default=AIProvider.GOOGLE)
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
+
     @classmethod
     def load_from_file(cls, config_path: Optional[Path] = None) -> "AIConfig":
         """Load configuration from YAML file."""
@@ -118,5 +119,3 @@ class AIConfig(BaseModel):
             raise ValueError(msg)
 
         return config
-
-

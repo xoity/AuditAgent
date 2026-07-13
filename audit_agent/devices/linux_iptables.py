@@ -25,7 +25,9 @@ logger = get_logger(__name__)
 def firewall_rule_to_commands(rule: FirewallRule) -> List[str]:
     """Convert a FirewallRule to iptables command strings."""
     if rule.direction.value == "bidirectional":
-        return _build_iptables_rule(rule, "INPUT") + _build_iptables_rule(rule, "OUTPUT")
+        return _build_iptables_rule(rule, "INPUT") + _build_iptables_rule(
+            rule, "OUTPUT"
+        )
     chain = "INPUT" if rule.direction.value == "inbound" else "OUTPUT"
     return _build_iptables_rule(rule, chain)
 
@@ -49,12 +51,18 @@ def _build_iptables_rule(rule: FirewallRule, chain: str) -> List[str]:
     dest_variants = [_ip_flag(ip, "-d") for ip in rule.destination_ips] or [[]]
 
     dport_variants: List[List[str]] = []
-    if rule.protocol and rule.protocol.name in ("tcp", "udp") and rule.destination_ports:
+    if (
+        rule.protocol
+        and rule.protocol.name in ("tcp", "udp")
+        and rule.destination_ports
+    ):
         for port in rule.destination_ports:
             if port.is_single():
                 dport_variants.append(["--dport", str(port.number)])
             elif port.is_range():
-                dport_variants.append(["--dport", f"{port.range_start}:{port.range_end}"])
+                dport_variants.append(
+                    ["--dport", f"{port.range_start}:{port.range_end}"]
+                )
     dport_variants = dport_variants or [[]]
 
     sport_variants: List[List[str]] = []
@@ -63,7 +71,9 @@ def _build_iptables_rule(rule: FirewallRule, chain: str) -> List[str]:
             if port.is_single():
                 sport_variants.append(["--sport", str(port.number)])
             elif port.is_range():
-                sport_variants.append(["--sport", f"{port.range_start}:{port.range_end}"])
+                sport_variants.append(
+                    ["--sport", f"{port.range_start}:{port.range_end}"]
+                )
     sport_variants = sport_variants or [[]]
 
     log_prefix = shlex.quote(f"[{rule.name or 'RULE'}] ")
@@ -80,7 +90,9 @@ def _build_iptables_rule(rule: FirewallRule, chain: str) -> List[str]:
     action_parts = _action_parts()
 
     commands: List[str] = []
-    for s, d, dp, sp in itertools.product(source_variants, dest_variants, dport_variants, sport_variants):
+    for s, d, dp, sp in itertools.product(
+        source_variants, dest_variants, dport_variants, sport_variants
+    ):
         match = base_parts + s + d + dp + sp
 
         if rule.log_traffic and action_parts:
@@ -449,7 +461,9 @@ class LinuxIptables(FirewallDevice):
             execution_time = time.time() - start_time
 
             output = stdout_data.decode("utf-8", errors="replace")
-            error = stderr_data.decode("utf-8", errors="replace") if stderr_data else None
+            error = (
+                stderr_data.decode("utf-8", errors="replace") if stderr_data else None
+            )
 
             result = CommandResult(
                 command=original_command,

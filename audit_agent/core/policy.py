@@ -254,5 +254,3 @@ class NetworkPolicy(BaseModel):
 
         data = json.loads(json_content)
         return cls.from_dict(data)
-
-
