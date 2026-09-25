@@ -169,9 +169,11 @@ class OpenCodeProvider(AIProviderBase):
 
         json_prompt = f"{prompt}\n\nRespond with valid JSON only."
 
-        response_text = _strip_code_fence(self.generate_text(
-            json_prompt, system_prompt=json_system, temperature=temperature
-        ))
+        response_text = _strip_code_fence(
+            self.generate_text(
+                json_prompt, system_prompt=json_system, temperature=temperature
+            )
+        )
 
         try:
             return json.loads(response_text)

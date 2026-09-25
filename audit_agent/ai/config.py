@@ -66,8 +66,7 @@ class AIConfig(BaseModel):
         # is required here. OPENCODE_MODEL selects which OpenCode model to use.
         providers = {
             "opencode": ProviderConfig(
-                model=os.getenv("OPENCODE_MODEL")
-                or "opencode-go/deepseek-v4.1-flash",
+                model=os.getenv("OPENCODE_MODEL") or "opencode-go/deepseek-v4.1-flash",
                 timeout=int(os.getenv("OPENCODE_TIMEOUT", "60")),
             )
         }

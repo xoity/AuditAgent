@@ -146,7 +146,9 @@ class TestAIConfig:
     def test_get_provider_config_needs_no_api_key(self):
         """OpenCode runs without an API key configured."""
         config = AIConfig(
-            providers={"opencode": ProviderConfig(model="opencode-go/deepseek-v4.1-flash")}
+            providers={
+                "opencode": ProviderConfig(model="opencode-go/deepseek-v4.1-flash")
+            }
         )
 
         provider_config = config.get_provider_config(AIProvider.OPENCODE)
@@ -360,9 +362,7 @@ firewall_rules:
 """
         mock_get_provider.return_value = mock_provider
 
-        config = AIConfig(
-            providers={"opencode": ProviderConfig(model="test")}
-        )
+        config = AIConfig(providers={"opencode": ProviderConfig(model="test")})
         engine = AIRemediationEngine(config)
 
         result = engine.generate_remediation_policy(sample_audit_result, sample_policy)
@@ -412,9 +412,7 @@ firewall_rules:
 
     def test_generate_summary_report(self, sample_audit_result):
         """Test generating summary report."""
-        config = AIConfig(
-            providers={"opencode": ProviderConfig(model="test")}
-        )
+        config = AIConfig(providers={"opencode": ProviderConfig(model="test")})
         engine = AIRemediationEngine(config)
 
         # Create improved result

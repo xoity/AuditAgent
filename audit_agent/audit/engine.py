@@ -721,7 +721,9 @@ class AuditEngine:
     @staticmethod
     def _anomaly_to_issue(anomaly: Anomaly, device: NetworkDevice) -> ComplianceIssue:
         """Convert a semantic anomaly into a reportable compliance issue."""
-        issue_type = "shadowed_rule" if anomaly.kind == "shadowing" else "redundant_rule"
+        issue_type = (
+            "shadowed_rule" if anomaly.kind == "shadowing" else "redundant_rule"
+        )
         if anomaly.kind == "shadowing":
             recommendation = (
                 "Reorder or narrow the earlier rule so the shadowed rule becomes "

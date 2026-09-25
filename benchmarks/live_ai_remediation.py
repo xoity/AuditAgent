@@ -71,11 +71,16 @@ def main() -> int:
     print(f"[2] AI returned {len(yaml_text)} chars of YAML")
     parsed = NetworkPolicy.from_yaml(yaml_text)
     print(f"    parses as NetworkPolicy, rules: {len(parsed.firewall_rules)}")
-    print(f"[3] post-remediation compliance: {after.overall_compliance_percentage:.1f}%")
+    print(
+        f"[3] post-remediation compliance: {after.overall_compliance_percentage:.1f}%"
+    )
     print(f"    issues: {after.total_issues}")
 
     ok = after.overall_compliance_percentage >= before.overall_compliance_percentage
-    print("RESULT:", "AI flow produced a valid, re-auditable policy" if ok else "NO IMPROVEMENT")
+    print(
+        "RESULT:",
+        "AI flow produced a valid, re-auditable policy" if ok else "NO IMPROVEMENT",
+    )
     return 0 if ok else 1
 
 
