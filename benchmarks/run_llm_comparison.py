@@ -2,8 +2,8 @@
 
 For each scenario the harness asks the raw LLM for an iptables remediation,
 then parses every command it produces through AuditAgent's own deterministic
-gate/schema. A response counts as *valid* only if every command parses as an
-`iptables` command that passes `validate_commands`. Anything else - shell
+gate/schema. A response passes basic pre-flight only if every command parses as
+an `iptables` command that passes `validate_commands`. Anything else - shell
 wrappers, prose, hallucinated flags on a non-iptables binary, malformed
 syntax - is counted as invalid.
 
@@ -27,6 +27,7 @@ import argparse
 import json
 import os
 import random
+import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Callable, Dict, List
 
@@ -56,7 +57,13 @@ class Scenario:
         )
 
 
-DRIFTS = ["missing_rule", "shadowed_rule", "wrong_port", "wrong_action", "redundant_rule"]
+DRIFTS = [
+    "missing_rule",
+    "shadowed_rule",
+    "wrong_port",
+    "wrong_action",
+    "redundant_rule",
+]
 
 
 def build_scenarios(count: int, seed: int = 0) -> List[Scenario]:
@@ -68,8 +75,8 @@ def build_scenarios(count: int, seed: int = 0) -> List[Scenario]:
         port = COMMON_PORTS[i % len(COMMON_PORTS)]
         intended = f"allow {src} to tcp/{port}"
         rules = [f"-A INPUT -p tcp -s {src} --dport {port} -j ACCEPT"]
-        if drift == "shadowing":
-            rules.insert(0, "-A INPUT -j ACCEPT")
+        if drift == "shadowed_rule":
+            rules.insert(0, "-A INPUT -j DROP")
         elif drift == "missing_rule":
             rules = []
         elif drift == "wrong_port":
@@ -87,9 +94,16 @@ def build_scenarios(count: int, seed: int = 0) -> List[Scenario]:
     return scenarios
 
 
-def _openai(prompt: str, model: str) -> str:
-    import urllib.request
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
+
+def _urlopen(request: urllib.request.Request):
+    return urllib.request.build_opener(_NoRedirect).open(request, timeout=60)
+
+
+def _openai(prompt: str, model: str) -> str:
     payload = json.dumps(
         {
             "model": model,
@@ -108,14 +122,12 @@ def _openai(prompt: str, model: str) -> str:
             "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
         },
     )
-    with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 - fixed API host
+    with _urlopen(request) as response:
         body = json.loads(response.read())
     return body["choices"][0]["message"]["content"]
 
 
 def _anthropic(prompt: str, model: str) -> str:
-    import urllib.request
-
     payload = json.dumps(
         {
             "model": model,
@@ -133,7 +145,7 @@ def _anthropic(prompt: str, model: str) -> str:
             "anthropic-version": "2023-06-01",
         },
     )
-    with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 - fixed API host
+    with _urlopen(request) as response:
         body = json.loads(response.read())
     return "".join(block["text"] for block in body["content"])
 
@@ -169,40 +181,57 @@ def classify(raw: str) -> Dict:
     return {
         "commands": commands,
         "invalid": invalid,
-        "valid": not invalid,
+        "accepted": not invalid,
     }
 
 
 def run(scenarios: List[Scenario], provider: str, model: str, call: Callable) -> Dict:
     results = []
     for scenario in scenarios:
-        raw = call(scenario.prompt(), model)
+        try:
+            raw = call(scenario.prompt(), model)
+            if not isinstance(raw, str):
+                raise TypeError("provider response must be text")
+        except Exception as exc:  # noqa: BLE001 - benchmark records provider failures
+            results.append(
+                {
+                    "scenario": asdict(scenario),
+                    "raw_response": None,
+                    "accepted": False,
+                    "invalid": [],
+                    "provider_error": str(exc),
+                }
+            )
+            continue
         grade = classify(raw)
         results.append(
             {
                 "scenario": asdict(scenario),
                 "raw_response": raw,
-                "valid": grade["valid"],
+                "accepted": grade["accepted"],
                 "invalid": grade["invalid"],
+                "provider_error": None,
             }
         )
 
     total = len(results)
-    valid = sum(1 for r in results if r["valid"])
+    accepted = sum(1 for r in results if r["accepted"])
+    provider_errors = sum(1 for r in results if r["provider_error"])
     by_drift: Dict[str, Dict[str, int]] = {}
     for r in results:
         drift = r["scenario"]["drift"]
-        bucket = by_drift.setdefault(drift, {"total": 0, "valid": 0})
+        bucket = by_drift.setdefault(drift, {"total": 0, "accepted": 0})
         bucket["total"] += 1
-        bucket["valid"] += int(r["valid"])
+        bucket["accepted"] += int(r["accepted"])
 
     return {
         "provider": provider,
         "model": model,
         "total": total,
-        "valid": valid,
-        "invalid": total - valid,
-        "valid_rate": (valid / total * 100) if total else 0.0,
+        "accepted": accepted,
+        "rejected": total - accepted - provider_errors,
+        "provider_errors": provider_errors,
+        "acceptance_rate": (accepted / total * 100) if total else 0.0,
         "by_drift": by_drift,
         "results": results,
     }
@@ -251,13 +280,13 @@ def main() -> None:
         summary = run(scenarios, args.provider, model, PROVIDERS[args.provider])
 
     print(
-        f"\n{summary['model']}: {summary['valid']}/{summary['total']} responses "
-        f"survived the deterministic gate ({summary['valid_rate']:.1f}%)"
+        f"\n{summary['model']}: {summary['accepted']}/{summary['total']} responses "
+        f"passed basic pre-flight ({summary['acceptance_rate']:.1f}%)"
     )
-    print("\n| drift | valid | total |")
-    print("|-------|-------|-------|")
+    print("\n| drift | accepted | total |")
+    print("|-------|----------|-------|")
     for drift, bucket in sorted(summary["by_drift"].items()):
-        print(f"| {drift} | {bucket['valid']} | {bucket['total']} |")
+        print(f"| {drift} | {bucket['accepted']} | {bucket['total']} |")
 
     with open(args.json, "w") as handle:
         json.dump(summary, handle, indent=2)

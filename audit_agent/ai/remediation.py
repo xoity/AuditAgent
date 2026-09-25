@@ -22,11 +22,13 @@ logger = get_logger(__name__)
 class AIRemediationEngine:
     """Engine for AI-powered policy remediation."""
 
-    def __init__(self, config: Optional[AIConfig] = None):
+    def __init__(self, config: Optional[AIConfig] = None, yaml_retries: int = 3):
         """Initialize the AI remediation engine."""
         self.config = config or AIConfig.load_from_file()
         self.analyzer = AuditResultAnalyzer()
         self.audit_engine = AuditEngine()
+        # How many times to re-ask the model when it emits unparseable YAML.
+        self.yaml_retries = yaml_retries
 
     def generate_remediation_policy(
         self,
@@ -74,25 +76,42 @@ class AIRemediationEngine:
 
         system_prompt = """You are an expert network security engineer specializing in firewall policy compliance.
 Your task is to generate corrected firewall policies that achieve 100% compliance.
-You understand iptables, network security best practices, and YAML policy formats."""
+You understand iptables, network security best practices, and YAML policy formats.
+You output ONLY valid, strictly-formatted YAML: every scalar that contains a colon,
+hash, comma, or prose is quoted with double quotes. You never emit free-form commentary
+inside YAML values."""
 
         logger.info("Calling AI provider: %s", ai_provider.__class__.__name__)
-        remediation_yaml = ai_provider.generate_text(
-            prompt, system_prompt=system_prompt, temperature=temperature
-        )
 
-        # Clean up response
-        remediation_yaml = self._clean_yaml_response(remediation_yaml)
+        last_error = None
+        for attempt in range(self.yaml_retries):
+            remediation_yaml = ai_provider.generate_text(
+                prompt, system_prompt=system_prompt, temperature=temperature
+            )
+            remediation_yaml = self._clean_yaml_response(remediation_yaml)
 
-        # Validate it's valid YAML
-        try:
-            yaml.safe_load(remediation_yaml)
-            logger.info("Generated valid YAML policy")
-        except yaml.YAMLError as e:
-            logger.error("Generated invalid YAML: %s", e)
-            raise ValueError(f"AI generated invalid YAML: {e}") from e
+            try:
+                # safe_load validates syntax; from_yaml validates the schema.
+                yaml.safe_load(remediation_yaml)
+                NetworkPolicy.from_yaml(remediation_yaml)
+                logger.info("Generated valid YAML policy")
+                return remediation_yaml
+            except (yaml.YAMLError, ValueError) as e:
+                last_error = e
+                logger.warning(
+                    "Attempt %s produced invalid policy YAML: %s",
+                    attempt + 1,
+                    e,
+                )
+                # Re-prompt the model with the exact error so it can self-correct.
+                prompt = (
+                    f"{prompt}\n\n## Previous attempt was INVALID\n"
+                    f"The YAML you returned could not be parsed:\n{e}\n\n"
+                    "Return the complete corrected policy YAML only, with all unsafe "
+                    "scalars double-quoted."
+                )
 
-        return remediation_yaml
+        raise ValueError(f"AI generated invalid YAML: {last_error}") from last_error
 
     @classmethod
     def _clean_yaml_response(cls, response: str) -> str:
@@ -164,10 +183,19 @@ You understand iptables, network security best practices, and YAML policy format
                 best_compliance,
             )
 
-            # Generate remediation policy
-            remediation_yaml = self.generate_remediation_policy(
-                audit_result, original_policy, provider
-            )
+            # Generate remediation policy. A generation failure (bad YAML,
+            # empty response, provider error) must not abort the whole loop:
+            # retry, then fall through to the programmatic fallback below.
+            try:
+                remediation_yaml = self.generate_remediation_policy(
+                    audit_result, original_policy, provider
+                )
+            except Exception as e:
+                logger.warning("Failed to generate remediation policy: %s", e)
+                if iteration == max_iterations - 1:
+                    if best_yaml:
+                        return best_yaml, best_result
+                continue
 
             # Parse and validate
             try:

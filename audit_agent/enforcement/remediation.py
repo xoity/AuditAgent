@@ -6,6 +6,7 @@ import datetime
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
+
 from pydantic import BaseModel
 
 from ..audit.engine import ComplianceIssue, PolicyAuditResult
@@ -68,6 +69,7 @@ class RemediationResult:
     execution_time: float
     error_message: Optional[str] = None
     rollback_performed: bool = False
+    rollback_attempted: bool = False
 
 
 class RemediationPlan(BaseModel):
@@ -663,7 +665,11 @@ class RemediationExecutor:
                 failed += 1
 
                 # Perform rollback if needed
-                if not dry_run and action.rollback_commands:
+                if result.rollback_performed:
+                    rolled_back += 1
+                elif result.rollback_attempted:
+                    pass
+                elif not dry_run and action.rollback_commands:
                     rollback_success = await self._perform_rollback(action)
                     if rollback_success:
                         rolled_back += 1
@@ -704,6 +710,8 @@ class RemediationExecutor:
 
         start_time = datetime.datetime.now()
         command_results = []
+        transaction_rolled_back = False
+        transaction_rollback_attempted = False
 
         try:
             # Pre-execution validation
@@ -730,6 +738,8 @@ class RemediationExecutor:
                         action.commands, timeout=self.watchdog_timeout
                     )
                     command_results = [txn]
+                    transaction_rolled_back = txn.rollback_performed
+                    transaction_rollback_attempted = txn.rollback_attempted
                 else:
                     command_results = await action.device.apply_commands(
                         action.commands, dry_run=False
@@ -784,6 +794,8 @@ class RemediationExecutor:
                 validation_passed=validation_passed,
                 execution_time=execution_time,
                 error_message=action.error_message,
+                rollback_performed=transaction_rolled_back,
+                rollback_attempted=transaction_rollback_attempted,
             )
 
         except Exception as e:

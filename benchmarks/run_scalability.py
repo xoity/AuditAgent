@@ -20,6 +20,7 @@ import gc
 import json
 import resource
 import statistics
+import threading
 import time
 from typing import Dict, List
 
@@ -76,7 +77,9 @@ class _Device:
         from audit_agent.devices.base import DeviceConfiguration, DeviceInfo
 
         return DeviceConfiguration(
-            device_info=DeviceInfo(hostname="bench", vendor="bench", model="bench", version="1"),
+            device_info=DeviceInfo(
+                hostname="bench", vendor="bench", model="bench", version="1"
+            ),
             raw_config="",
             parsed_items=self._items,
             timestamp="",
@@ -94,6 +97,27 @@ async def _time_audit(size: int, seed: int) -> float:
     return time.perf_counter() - start
 
 
+def _time_audit_with_peak(size: int, seed: int) -> tuple[float, int]:
+    baseline = _rss_kb()
+    peak = baseline
+    done = threading.Event()
+
+    def sample() -> None:
+        nonlocal peak
+        while not done.wait(0.001):
+            peak = max(peak, _rss_kb())
+
+    sampler = threading.Thread(target=sample, daemon=True)
+    sampler.start()
+    try:
+        elapsed = asyncio.run(_time_audit(size, seed))
+        peak = max(peak, _rss_kb())
+    finally:
+        done.set()
+        sampler.join()
+    return elapsed, peak - baseline
+
+
 def _time_anomaly(size: int, seed: int) -> float:
     parsed = [
         parse_rule(line, i)
@@ -106,23 +130,29 @@ def _time_anomaly(size: int, seed: int) -> float:
 
 
 def run(sizes: List[int], repeat: int, seed: int) -> List[Dict[str, float]]:
+    if repeat <= 0:
+        raise ValueError("repeat must be positive")
+
     rows = []
     for size in sizes:
         gc.collect()
-        before = _rss_kb()
         audit_times = []
+        peak_deltas = []
         for _ in range(repeat):
-            audit_times.append(asyncio.run(_time_audit(size, seed)))
-        peak = _rss_kb()
+            elapsed, peak_delta = _time_audit_with_peak(size, seed)
+            audit_times.append(elapsed)
+            peak_deltas.append(peak_delta)
         anomaly_times = [_time_anomaly(size, seed) for _ in range(repeat)]
 
         rows.append(
             {
                 "rules": size,
                 "audit_s_mean": statistics.mean(audit_times),
-                "audit_s_stdev": statistics.stdev(audit_times) if len(audit_times) > 1 else 0.0,
+                "audit_s_stdev": statistics.stdev(audit_times)
+                if len(audit_times) > 1
+                else 0.0,
                 "anomaly_s_mean": statistics.mean(anomaly_times),
-                "rss_delta_kb": peak - before,
+                "rss_delta_kb": max(peak_deltas),
                 "repeat": repeat,
             }
         )
@@ -135,9 +165,15 @@ def run(sizes: List[int], repeat: int, seed: int) -> List[Dict[str, float]]:
 
 
 def main() -> None:
+    def positive_int(value: str) -> int:
+        parsed = int(value)
+        if parsed <= 0:
+            raise argparse.ArgumentTypeError("must be positive")
+        return parsed
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sizes", type=int, nargs="+", default=DEFAULT_SIZES)
-    parser.add_argument("--repeat", type=int, default=3)
+    parser.add_argument("--repeat", type=positive_int, default=3)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--json", type=str, default=None, help="write raw rows to JSON")
     args = parser.parse_args()

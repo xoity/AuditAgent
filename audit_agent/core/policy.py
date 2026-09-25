@@ -4,10 +4,10 @@ Network Security Policy definition and management.
 
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .objects import Zone
-from .rules import BaseRule, FirewallRule, NATRule, QoSRule, VPNRule
+from .rules import BaseRule, FirewallRule, NATRule, QoSRule, VPNRule, _coerce_tags
 
 
 class PolicyMetadata(BaseModel):
@@ -20,6 +20,11 @@ class PolicyMetadata(BaseModel):
     created_date: Optional[str] = None
     last_modified: Optional[str] = None
     tags: List[str] = []
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _validate_tags(cls, value: Any) -> List[str]:
+        return _coerce_tags(value)
 
 
 class PolicyValidationResult(BaseModel):

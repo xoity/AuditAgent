@@ -36,11 +36,6 @@ TERMINAL_ACTIONS = {"ACCEPT", "DROP", "REJECT"}
 # DROP-like actions deny traffic; ACCEPT allows it.
 DENY_ACTIONS = {"DROP", "REJECT"}
 
-# Flags that carry a value we already model; used to skip their argument.
-_VALUE_FLAGS = {"-s", "--source", "-d", "--destination", "-p", "--protocol",
-                "-j", "--jump", "-i", "--in-interface", "-o", "--out-interface",
-                "--dport", "--destination-port", "-m", "--match"}
-
 PortInterval = Tuple[int, int]  # inclusive
 
 
@@ -89,12 +84,12 @@ def _parse_port_spec(value: str) -> Optional[List[PortInterval]]:
     return sorted(intervals) if intervals else None
 
 
-def _parse_network(value: str) -> ipaddress.IPv4Network:
+def _parse_network(value: str) -> Optional[ipaddress.IPv4Network]:
     # iptables accepts a bare IP (implies /32) or CIDR.
     try:
         return ipaddress.IPv4Network(value, strict=False)
     except (ipaddress.AddressValueError, ValueError):
-        return ipaddress.IPv4Network("0.0.0.0/0")
+        return None
 
 
 def parse_rule(
@@ -123,6 +118,7 @@ def parse_rule(
     dports: Optional[List[PortInterval]] = None
     in_iface: Optional[str] = None
     out_iface: Optional[str] = None
+    protocol_matches: List[str] = []
 
     i = 2
     while i < len(tokens):
@@ -134,11 +130,19 @@ def parse_rule(
             i += 2
             continue
         if tok in ("-s", "--source"):
-            src = _parse_network(tokens[i + 1])
+            parsed = _parse_network(tokens[i + 1])
+            if parsed is None:
+                unmodelled = True
+            else:
+                src = parsed
             i += 2
             continue
         if tok in ("-d", "--destination"):
-            dst = _parse_network(tokens[i + 1])
+            parsed = _parse_network(tokens[i + 1])
+            if parsed is None:
+                unmodelled = True
+            else:
+                dst = parsed
             i += 2
             continue
         if tok in ("-j", "--jump"):
@@ -167,9 +171,14 @@ def parse_rule(
             i += 2
             continue
         if tok in ("-m", "--match"):
-            # Match extension (state, comment, conntrack, ...). It narrows the
-            # rule, so mark unmodelled.
-            unmodelled = True
+            match = tokens[i + 1].lower()
+            if match in {"tcp", "udp", "icmp"}:
+                protocol_matches.append(match)
+            else:
+                unmodelled = True
+            i += 2
+            continue
+        if tok == "--reject-with":
             i += 2
             continue
         if tok.startswith("-"):
@@ -185,8 +194,7 @@ def parse_rule(
 
     if not action:
         return None
-    # ip6tables has a different address family; only reason about IPv4 here.
-    if src.version != 4 or dst.version != 4:
+    if any(match != protocol for match in protocol_matches):
         unmodelled = True
 
     return ParsedRule(
@@ -330,9 +338,7 @@ def analyze_config_items(config_items) -> Tuple[List[Anomaly], set]:
             parsed.append(pr)
 
     anomalies = analyze_rules(parsed)
-    shadowed_contents = {
-        a.rule_content for a in anomalies if a.kind == "shadowing"
-    }
+    shadowed_contents = {a.rule_content for a in anomalies if a.kind == "shadowing"}
     return anomalies, shadowed_contents
 
 

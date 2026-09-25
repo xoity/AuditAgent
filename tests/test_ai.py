@@ -371,6 +371,45 @@ firewall_rules:
         assert "allow-ssh" in result
         assert mock_provider.generate_text.called
 
+    @patch("audit_agent.ai.remediation.get_provider")
+    def test_generate_and_validate_survives_bad_generation(
+        self, mock_get_provider, sample_audit_result, sample_policy
+    ):
+        """A provider that returns non-YAML must not escape the retry loop."""
+        mock_provider = MagicMock()
+        # First call: prose (invalid YAML). Then valid YAML.
+        mock_provider.generate_text.side_effect = [
+            "destination 192.168.0.111/32 wit\n expected configuration.",
+            """
+metadata:
+  name: test-policy-remediation
+firewall_rules:
+- name: allow-ssh
+  action: allow
+  direction: inbound
+  protocol:
+    name: tcp
+  destination_ports:
+  - number: 22
+""",
+        ]
+        mock_get_provider.return_value = mock_provider
+
+        config = AIConfig(providers={"opencode": ProviderConfig(model="test")})
+        engine = AIRemediationEngine(config)
+
+        # Runs to completion (returns a YAML string) instead of raising.
+        yaml_text, result = engine.generate_and_validate(
+            audit_result=sample_audit_result,
+            original_policy=sample_policy,
+            devices=[],
+            provider=AIProvider.OPENCODE,
+            max_iterations=3,
+        )
+
+        assert isinstance(yaml_text, str)
+        assert mock_provider.generate_text.call_count >= 2
+
     def test_generate_summary_report(self, sample_audit_result):
         """Test generating summary report."""
         config = AIConfig(

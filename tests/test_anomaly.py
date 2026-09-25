@@ -47,6 +47,20 @@ class TestParsing:
         rule = parse_rule("-A INPUT -j LOG --log-prefix 'x'", 0)
         assert not rule.terminal
 
+    def test_ipv6_source_is_unmodelled(self):
+        rule = parse_rule("-A INPUT -s 2001:db8::/32 -j ACCEPT", 0)
+        assert rule.unmodelled
+
+    def test_protocol_match_is_modelled_only_for_same_protocol(self):
+        tcp = parse_rule("-A INPUT -m tcp -p tcp --dport 22 -j ACCEPT", 0)
+        mismatch = parse_rule("-A INPUT -m udp -p tcp --dport 22 -j ACCEPT", 1)
+        assert not tcp.unmodelled
+        assert mismatch.unmodelled
+
+    def test_reject_with_is_target_only(self):
+        rule = parse_rule("-A INPUT -p tcp -j REJECT --reject-with tcp-reset", 0)
+        assert not rule.unmodelled
+
 
 class TestCovers:
     def test_bare_rule_covers_specific(self):
@@ -127,6 +141,20 @@ class TestAnalyzeRules:
             "-A INPUT -s 192.168.1.0/24 -p tcp --dport 22 -j ACCEPT",
         )
         assert analyze_rules(cases) == []
+
+    def test_ipv6_rule_does_not_shadow_ipv4(self):
+        cases = _rules(
+            "-A INPUT -s 2001:db8::/32 -j ACCEPT",
+            "-A INPUT -s 10.0.0.0/8 -j DROP",
+        )
+        assert analyze_rules(cases) == []
+
+    def test_iptables_save_tcp_and_reject_rules_shadow(self):
+        cases = _rules(
+            "-A INPUT -p tcp -m tcp --dport 22 -j REJECT --reject-with tcp-reset",
+            "-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT",
+        )
+        assert [anomaly.kind for anomaly in analyze_rules(cases)] == ["shadowing"]
 
     def test_first_covering_rule_is_reported(self):
         cases = _rules(

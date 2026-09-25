@@ -21,6 +21,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import shutil
+import subprocess
 from dataclasses import asdict, dataclass
 from typing import List
 
@@ -38,9 +40,7 @@ async def _invalid_command(tmpdir: str) -> Outcome:
     device = SimulatedLinuxIptables(host="sim", state_file=f"{tmpdir}/a.json")
     await device.connect()
     device._save_rules([])
-    result = await device.apply_transaction(
-        ["iptables -X NOT_A_CHAIN"]
-    )
+    result = await device.apply_transaction(["iptables -X NOT_A_CHAIN"])
     # Simulator only accepts known verbs; the batch fails and we roll back.
     recovered = not result.success and device._load_rules() == []
     return Outcome("invalid_command", recovered, result.error or result.output)
@@ -51,6 +51,7 @@ async def _mid_batch_failure(tmpdir: str) -> Outcome:
         host="sim", state_file=f"{tmpdir}/b.json", fail_on_command="--dport 8080"
     )
     await device.connect()
+    device._save_rules([])
     result = await device.apply_transaction(
         [
             "iptables -A INPUT -p tcp --dport 22 -j ACCEPT",
@@ -66,34 +67,37 @@ async def _lockout_rule_rolled_back(tmpdir: str) -> Outcome:
     """The classic lockout: an incorrect rule cuts the management port."""
     device = SimulatedLinuxIptables(host="sim", state_file=f"{tmpdir}/c.json")
     await device.connect()
-    # Seed a management allow, then attempt a change that would drop it.
-    await device.apply_commands(
-        ["iptables -A INPUT -p tcp --dport 22 -j ACCEPT"]
-    )
-    device.fail_on_command = "--dport 22"
+    device._save_rules([])
+    device.fail_on_command = "--dport 8080"
     result = await device.apply_transaction(
-        ["iptables -A INPUT -p tcp --dport 22 -j DROP"]
+        [
+            "iptables -A INPUT -p tcp --dport 22 -j DROP",
+            "iptables -A INPUT -p tcp --dport 8080 -j ACCEPT",
+        ]
     )
-    # Management allow must survive: rollback restores the seeded state.
-    recovered = not result.success and device._load_rules() == [
-        "-A INPUT -p tcp --dport 22 -j ACCEPT"
-    ]
+    recovered = not result.success and device._load_rules() == []
     return Outcome("lockout_rule_rolled_back", recovered, result.error or result.output)
 
 
-async def _lost_session(tmpdir: str) -> Outcome:
-    """Session dies mid-apply; the on-host watchdog must still restore."""
-    device = SimulatedLinuxIptables(host="sim", state_file=f"{tmpdir}/d.json")
-    await device.connect()
-    # Simulate the session dying after the watchdog is armed by modelling the
-    # restore the watchdog would perform, then asserting the code path exists.
-    backup = json.dumps({"rules": []})
-    await device.restore_configuration(backup)
-    recovered = device._load_rules() == []
+def _vagrant_lost_session() -> Outcome:
+    vagrant = shutil.which("vagrant")
+    if not vagrant:
+        return Outcome("lost_session_watchdog_restore", False, "vagrant not found")
+    result = subprocess.run(  # noqa: S603 - resolved vagrant executable
+        [
+            vagrant,
+            "ssh",
+            "-c",
+            "cd /vagrant && sh benchmarks/live_watchdog_check.sh",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     return Outcome(
         "lost_session_watchdog_restore",
-        recovered,
-        "simulator restores from snapshot (watchdog path covered by unit tests)",
+        result.returncode == 0,
+        (result.stdout if result.returncode == 0 else result.stderr).strip(),
     )
 
 
@@ -101,7 +105,6 @@ SCENARIOS = [
     _invalid_command,
     _mid_batch_failure,
     _lockout_rule_rolled_back,
-    _lost_session,
 ]
 
 
@@ -117,6 +120,8 @@ def main() -> None:
     args = parser.parse_args()
 
     outcomes = asyncio.run(run(args.tmpdir))
+    if args.vagrant:
+        outcomes.append(_vagrant_lost_session())
 
     print("\n| scenario | recovered | detail |")
     print("|----------|-----------|--------|")
@@ -125,13 +130,6 @@ def main() -> None:
 
     recovered = sum(1 for o in outcomes if o.recovered)
     print(f"\n{recovered}/{len(outcomes)} fault scenarios recovered cleanly")
-
-    if args.vagrant:
-        print(
-            "\n--vagrant: run the lost-session scenario manually in the guest via\n"
-            "  vagrant ssh -c 'sudo sh -c \"sleep 5; iptables-restore < /tmp/snapshot\" &'\n"
-            "then drop the session and confirm the snapshot is restored."
-        )
 
     if args.json:
         with open(args.json, "w") as handle:

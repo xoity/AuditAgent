@@ -2,6 +2,7 @@
 Linux iptables firewall device implementation.
 """
 
+import ipaddress
 import re
 import shlex
 from typing import List, Optional
@@ -24,43 +25,64 @@ logger = get_logger(__name__)
 # Tokens that must never appear in a command we execute. AuditAgent generates
 # its own commands, so their presence means the command did not come from the
 # deterministic engine.
-_SHELL_HARD_REJECT = ("`", "$(", "\n", "\r", ";", "&&", "||", ">", "<", "&")
-# If a command legitimately contains a pipe, every segment must begin with one
-# of these; this is the pipe form our own read-only/restore commands use.
-_PIPE_SEGMENT_ALLOW = (
-    "iptables",
-    "ip6tables",
-    "ip ",
-    "printf",
-    "sudo iptables-restore",
-    "sudo ip6tables-restore",
-    "sudo tee",
-    "base64 -d",
-    "grep",
-    "awk",
-    "sed",
-    "sort",
-    "uniq",
-    "wc",
-    "cat ",
+_SHELL_HARD_REJECT = (
+    "`",
+    "$(",
+    "\n",
+    "\r",
+    ";",
+    "&&",
+    "||",
+    "|",
+    ">",
+    "<",
+    "&",
 )
+_AA_DIR = "/run/auditagent"
+_AA_COMMIT_MARKER = f"{_AA_DIR}/commit"
+_AA_WATCHDOG = f"{_AA_DIR}/watchdog.sh"
+_AA_WATCHDOG_PID = f"{_AA_DIR}/watchdog.pid"
+
+_SAFE_EXACT_COMMANDS = {
+    "hostname",
+    "cat /etc/os-release",
+    "uname -r",
+    "ip link show | grep '^[0-9]' | awk '{print $2}' | sed 's/:$//'",
+    "iptables -L | grep '^Chain' | awk '{print $2}'",
+    "iptables -L -n | grep -v '^Chain' | grep -v '^target'",
+    "iptables-save",
+    "ip6tables-save",
+    "iptables --version",
+    "iptables -L -n",
+    "iptables -L -n --line-numbers",
+    "iptables -t nat -L -n --line-numbers",
+}
 
 # Whole-command templates that are allowed to use shell control syntax. These
 # are emitted verbatim by AuditAgent's own watchdog arming/teardown and contain
 # no caller-supplied data, so metacharacters here are structural, not injection.
 _TRUSTED_TEMPLATES = (
-    re.compile(r"^read -r _aa_pid < /tmp/auditagent-watchdog\.pid && kill \"\$_aa_pid\"$"),
-    re.compile(r"^setsid sh /tmp/auditagent-watchdog\.sh </dev/null >/dev/null 2>&1 &$"),
-    re.compile(r"^test -f /tmp/auditagent-commit && rm -f /tmp/auditagent-commit$"),
+    re.compile(
+        r"^printf '%s' '[A-Za-z0-9+/=]+' \| base64 -d \| "
+        r"sudo (?:iptables-restore|ip6tables-restore)$"
+    ),
+    re.compile(
+        rf"^printf '%s' '[A-Za-z0-9+/=]+' \| base64 -d \| "
+        rf"sudo tee {re.escape(_AA_WATCHDOG)}$"
+    ),
+    re.compile(rf"^sudo install -d -m 0700 -o root -g root {re.escape(_AA_DIR)}$"),
+    re.compile(
+        rf"^sudo sh -c 'if \[ -f {re.escape(_AA_WATCHDOG_PID)} \]; then "
+        rf"read -r _aa_pid < {re.escape(_AA_WATCHDOG_PID)} "
+        rf'&& kill "\$_aa_pid"; fi\'$'
+    ),
+    re.compile(rf"^sudo rm -f {re.escape(_AA_COMMIT_MARKER)}$"),
+    re.compile(
+        rf"^sudo setsid sh {re.escape(_AA_WATCHDOG)} "
+        rf"</dev/null >/dev/null 2>&1 &$"
+    ),
+    re.compile(rf"^sudo touch {re.escape(_AA_COMMIT_MARKER)}$"),
 )
-
-# Transactional enforcement: a detached on-host watchdog restores the
-# pre-change snapshot unless a commit marker appears within the timeout. This
-# survives the SSH session dying mid-apply (e.g. an incorrect rule cutting
-# port 22), which no client-side rollback can.
-_AA_COMMIT_MARKER = "/tmp/auditagent-commit"
-_AA_WATCHDOG = "/tmp/auditagent-watchdog.sh"
-_AA_WATCHDOG_PID = "/tmp/auditagent-watchdog.pid"
 
 
 def validate_command_safety(command: str) -> Optional[str]:
@@ -71,16 +93,61 @@ def validate_command_safety(command: str) -> Optional[str]:
     flags, arbitrary pipes or shell metacharacters are rejected before the
     command reaches the target host.
     """
-    if any(pattern.match(command) for pattern in _TRUSTED_TEMPLATES):
+    if command in _SAFE_EXACT_COMMANDS or any(
+        pattern.fullmatch(command) for pattern in _TRUSTED_TEMPLATES
+    ):
         return None
     for token in _SHELL_HARD_REJECT:
         if token in command:
             return f"forbidden shell syntax {token!r}"
-    if "|" in command:
-        for segment in command.split("|"):
-            if not segment.strip().startswith(_PIPE_SEGMENT_ALLOW):
-                return f"untrusted pipeline segment {segment.strip()!r}"
-    return None
+    try:
+        parts = shlex.split(command)
+    except ValueError as exc:
+        return f"invalid shell syntax: {exc}"
+    if _is_approved_iptables_rule(parts):
+        return None
+    return "command does not match an approved form"
+
+
+def _is_approved_iptables_rule(parts: List[str]) -> bool:
+    if len(parts) < 5 or parts[0] != "iptables":
+        return False
+    if parts[1] not in {"-A", "-D"}:
+        return False
+    if parts[2] not in {"INPUT", "OUTPUT", "FORWARD", "PREROUTING", "POSTROUTING"}:
+        return False
+
+    jump = False
+    i = 3
+    while i < len(parts):
+        flag = parts[i]
+        if i + 1 >= len(parts):
+            return False
+        value = parts[i + 1]
+        if flag in {"-p", "-m"}:
+            if value not in {"tcp", "udp", "icmp"}:
+                return False
+        elif flag in {"-s", "-d"}:
+            try:
+                ipaddress.ip_network(value, strict=False)
+            except ValueError:
+                return False
+        elif flag in {"--dport", "--sport"}:
+            bounds = value.split(":", 1)
+            if not all(
+                bound.isdigit() and 0 <= int(bound) <= 65535 for bound in bounds
+            ):
+                return False
+        elif flag == "-j":
+            if value not in {"ACCEPT", "DROP", "REJECT", "LOG"}:
+                return False
+            jump = True
+        elif flag == "--log-prefix":
+            pass
+        else:
+            return False
+        i += 2
+    return jump
 
 
 def firewall_rule_to_commands(rule: FirewallRule) -> List[str]:
@@ -680,7 +747,9 @@ class LinuxIptables(FirewallDevice):
             )
 
         try:
-            snapshot = backup if backup is not None else await self.backup_configuration()
+            snapshot = (
+                backup if backup is not None else await self.backup_configuration()
+            )
             snapshots = json.loads(snapshot)
         except Exception as exc:  # noqa: BLE001 - surface any snapshot failure
             return CommandResult(
@@ -695,14 +764,23 @@ class LinuxIptables(FirewallDevice):
             # Simulator-style device: no persistent host to lock out.
             results = await self.execute_commands_batch(commands, stop_on_error=True)
             success = bool(results) and all(r.success for r in results)
+            restore = None
             if not success:
-                await self.restore_configuration(snapshot)
+                restore = await self.restore_configuration(snapshot)
             return CommandResult(
                 command="apply_transaction",
                 success=success,
                 output="Applied (in-band rollback only)" if success else "",
-                error=None if success else "Apply failed; rolled back in-band",
+                error=None
+                if success
+                else (
+                    "Apply failed; rolled back in-band"
+                    if restore and restore.success
+                    else f"Apply failed and rollback failed: {restore.error if restore else 'unknown error'}"
+                ),
                 execution_time=time.time() - start_time,
+                rollback_performed=bool(restore and restore.success),
+                rollback_attempted=not success,
             )
 
         import base64
@@ -723,18 +801,48 @@ class LinuxIptables(FirewallDevice):
             "fi\n"
         )
 
+        prepare_dir = await self.execute_command(
+            f"sudo install -d -m 0700 -o root -g root {_AA_DIR}",
+            use_sudo=False,
+        )
+        if not prepare_dir.success:
+            return CommandResult(
+                command="apply_transaction",
+                success=False,
+                output="",
+                error=f"Failed to prepare rollback watchdog: {prepare_dir.error}",
+                execution_time=time.time() - start_time,
+            )
+
         # Stop any watchdog left over from a previous transaction, then arm a
         # fresh one and clear the commit marker for this transaction. Kill via
         # the PID file: `pkill -f <script>` would match this very command's
         # argv and take the session down with it.
-        await self.execute_command(
-            f"read -r _aa_pid < {_AA_WATCHDOG_PID} && kill \"$_aa_pid\"",
+        stopped = await self.execute_command(
+            f"sudo sh -c 'if [ -f {_AA_WATCHDOG_PID} ]; then "
+            f'read -r _aa_pid < {_AA_WATCHDOG_PID} && kill "$_aa_pid"; fi\'',
             use_sudo=False,
         )
-        await self.execute_command(
-            f"test -f {_AA_COMMIT_MARKER} && rm -f {_AA_COMMIT_MARKER}",
+        if not stopped.success:
+            return CommandResult(
+                command="apply_transaction",
+                success=False,
+                output="",
+                error=f"Failed to stop previous rollback watchdog: {stopped.error}",
+                execution_time=time.time() - start_time,
+            )
+        cleared = await self.execute_command(
+            f"sudo rm -f {_AA_COMMIT_MARKER}",
             use_sudo=False,
         )
+        if not cleared.success:
+            return CommandResult(
+                command="apply_transaction",
+                success=False,
+                output="",
+                error=f"Failed to clear rollback commit marker: {cleared.error}",
+                execution_time=time.time() - start_time,
+            )
         write_script = await self._write_remote_file(_AA_WATCHDOG, watchdog)
         if not write_script.success:
             return CommandResult(
@@ -746,16 +854,35 @@ class LinuxIptables(FirewallDevice):
             )
         # Detach fully: supervisor-less setsid + all streams redirected, so the
         # watchdog outlives the SSH channel.
-        await self.execute_command(
-            f"setsid sh {_AA_WATCHDOG} </dev/null >/dev/null 2>&1 &",
+        armed = await self.execute_command(
+            f"sudo setsid sh {_AA_WATCHDOG} </dev/null >/dev/null 2>&1 &",
             use_sudo=False,
         )
+        if not armed.success:
+            return CommandResult(
+                command="apply_transaction",
+                success=False,
+                output="",
+                error=f"Failed to start rollback watchdog: {armed.error}",
+                execution_time=time.time() - start_time,
+            )
 
         results = await self.execute_commands_batch(commands, stop_on_error=True)
         success = bool(results) and all(r.success for r in results)
 
         if success:
-            await self.execute_command(f"touch {_AA_COMMIT_MARKER}", use_sudo=False)
+            committed = await self.execute_command(
+                f"sudo touch {_AA_COMMIT_MARKER}", use_sudo=False
+            )
+            if not committed.success:
+                return CommandResult(
+                    command="apply_transaction",
+                    success=False,
+                    output="",
+                    error=f"Applied but failed to disarm rollback watchdog: {committed.error}",
+                    execution_time=time.time() - start_time,
+                    rollback_attempted=True,
+                )
             return CommandResult(
                 command="apply_transaction",
                 success=True,
@@ -766,7 +893,19 @@ class LinuxIptables(FirewallDevice):
         # Apply failed while the session is still alive: roll back immediately
         # and disarm the watchdog so it does not fire a second time.
         restore = await self.restore_configuration(snapshot)
-        await self.execute_command(f"touch {_AA_COMMIT_MARKER}", use_sudo=False)
+        if restore.success:
+            disarmed = await self.execute_command(
+                f"sudo touch {_AA_COMMIT_MARKER}", use_sudo=False
+            )
+            if not disarmed.success:
+                return CommandResult(
+                    command="apply_transaction",
+                    success=False,
+                    output="",
+                    error=f"Rollback restored but watchdog disarm failed: {disarmed.error}",
+                    execution_time=time.time() - start_time,
+                    rollback_attempted=True,
+                )
         return CommandResult(
             command="apply_transaction",
             success=False,
@@ -775,6 +914,8 @@ class LinuxIptables(FirewallDevice):
             if restore.success
             else f"Apply failed and rollback failed: {restore.error}",
             execution_time=time.time() - start_time,
+            rollback_performed=restore.success,
+            rollback_attempted=True,
         )
 
     async def get_device_info(self) -> DeviceInfo:

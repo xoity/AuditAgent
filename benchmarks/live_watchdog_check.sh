@@ -7,17 +7,23 @@
 # child process and SIGKILL it the moment the rule appears on the host.
 set -e
 
-iptables-save > /tmp/aa-before
-echo "pre-test rules: $(grep -c '^-A' /tmp/aa-before || true)"
+WORKDIR=$(mktemp -d /tmp/auditagent-watchdog-check.XXXXXX)
+trap 'rm -rf "$WORKDIR"' EXIT
 
-cat > /tmp/aa-apply.py <<'PY'
+sudo iptables-save > "$WORKDIR/before"
+echo "pre-test rules: $(grep -c '^-A' "$WORKDIR/before" || true)"
+
+cat > "$WORKDIR/apply.py" <<'PY'
 import asyncio, subprocess, sys
 sys.path.insert(0, "/vagrant")
 from audit_agent.devices.linux_iptables import LinuxIptables
 from audit_agent.devices.base import CommandResult
 
 async def _exec(command, use_sudo=None):
-    p = subprocess.run(["sudo", "sh", "-c", command], capture_output=True, text=True)
+    argv = ["sh", "-c", command]
+    if use_sudo is True or (use_sudo is None and "iptables" in command):
+        argv.insert(0, "sudo")
+    p = subprocess.run(argv, capture_output=True, text=True)
     return CommandResult(command=command, success=p.returncode == 0,
                          output=p.stdout, error=p.stderr or None,
                          exit_code=p.returncode, execution_time=0.0)
@@ -33,19 +39,19 @@ async def main():
         # harness can kill this process mid-transaction, exactly as a dropped
         # SSH session would.
         import time as _t
-        _t.sleep(10)
+        _t.sleep(2)
         return results
     dev.execute_commands_batch = batch
 
     await dev.apply_transaction(
-        ["iptables -A INPUT -p tcp --dport 22222 -j DROP"], timeout=5
+        ["iptables -A INPUT -p tcp --dport 22222 -j DROP"], timeout=8
     )
 
 asyncio.run(main())
 PY
 
 # Run the apply in the background, then kill it as soon as the rule lands.
-sudo /opt/aa-venv/bin/python3 /tmp/aa-apply.py &
+/opt/aa-venv/bin/python3 "$WORKDIR/apply.py" &
 APPLY_PID=$!
 
 for _ in $(seq 1 50); do
@@ -68,7 +74,7 @@ wait "$APPLY_PID" 2>/dev/null || true
 echo "STEP 2: applying process killed (session lost, no commit)"
 
 # Wait past the watchdog timeout.
-sleep 8
+sleep 10
 
 if sudo iptables-save | grep -q -- '--dport 22222 -j DROP'; then
   echo "FAIL: watchdog did not revert the rule"
@@ -79,12 +85,12 @@ echo "STEP 3: watchdog reverted the rule with no commit signal"
 
 strip_noise() { grep -v '^#' "$1" | sed -E 's/^(:[A-Z]+ [A-Z]+) \[[0-9]+:[0-9]+\]/\1/'; }
 
-if sudo iptables-save | strip_noise /dev/stdin > /tmp/aa-after-clean \
-   && strip_noise /tmp/aa-before > /tmp/aa-before-clean \
-   && diff -q /tmp/aa-before-clean /tmp/aa-after-clean >/dev/null; then
+if sudo iptables-save | strip_noise /dev/stdin > "$WORKDIR/after-clean" \
+   && strip_noise "$WORKDIR/before" > "$WORKDIR/before-clean" \
+   && diff -q "$WORKDIR/before-clean" "$WORKDIR/after-clean" >/dev/null; then
   echo "RESULT: ruleset restored to pre-test state (ignoring save timestamps)"
 else
   echo "RESULT: ruleset differs from pre-test state"
-  diff /tmp/aa-before-clean /tmp/aa-after-clean || true
+  diff "$WORKDIR/before-clean" "$WORKDIR/after-clean" || true
   exit 1
 fi

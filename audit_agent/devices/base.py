@@ -75,6 +75,8 @@ class CommandResult(BaseModel):
     error: Optional[str] = None
     exit_code: Optional[int] = None
     execution_time: float
+    rollback_performed: bool = False
+    rollback_attempted: bool = False
 
 
 class NetworkDevice(ABC):
