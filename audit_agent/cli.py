@@ -837,10 +837,10 @@ def ai_remediate(
     except Exception as e:
         console.print(f"[red]✗ Failed to load AI config: {e}[/red]")
         console.print(
-            "\n[yellow]Set GOOGLE_AI_API_KEY or OPENAI_API_KEY environment variable[/yellow]"
+            "\n[yellow]OpenCode must be installed and configured with a model[/yellow]"
         )
         console.print(
-            "[yellow]Or create ~/.audit-agent/config.yaml with your API keys[/yellow]"
+            "[yellow]Or create ~/.audit-agent/config.yaml to select a provider[/yellow]"
         )
         raise typer.Exit(1)
 
@@ -853,9 +853,7 @@ def ai_remediate(
     except ValueError as e:
         console.print(f"[red]✗ {e}[/red]")
         console.print("\n[yellow]Available providers:[/yellow]")
-        console.print("  • google (Google AI Studio / Gemini)")
-        console.print("  • openai (OpenAI GPT)")
-        console.print("  • azure_openai (Azure OpenAI)")
+        console.print("  • opencode (OpenCode headless runner)")
         raise typer.Exit(1)
 
     # Load policy and devices

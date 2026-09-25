@@ -2,6 +2,7 @@
 Tests for AI integration.
 """
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,7 +10,7 @@ import yaml
 
 from audit_agent.ai.analyzer import AuditResultAnalyzer
 from audit_agent.ai.config import AIConfig, AIProvider, ProviderConfig
-from audit_agent.ai.providers import GoogleAIProvider, get_provider
+from audit_agent.ai.providers import OpenCodeProvider, get_provider
 from audit_agent.ai.remediation import AIRemediationEngine
 from audit_agent.audit.engine import (
     ComplianceIssue,
@@ -84,57 +85,74 @@ def sample_audit_result():
     )
 
 
+def _event_stream(*texts: str) -> str:
+    """Build an OpenCode-style JSON event stream with the given text events."""
+    lines = [json.dumps({"type": "step_start", "part": {}})]
+    for text in texts:
+        lines.append(json.dumps({"type": "text", "part": {"text": text}}))
+    return "\n".join(lines)
+
+
 class TestAIConfig:
     """Test AI configuration management."""
 
-    def test_load_from_env_google(self, monkeypatch):
-        """Test loading Google AI config from environment."""
-        monkeypatch.setenv("GOOGLE_AI_API_KEY", "test-key-123")
-        monkeypatch.setenv("GOOGLE_AI_MODEL", "gemini-1.5-pro")
+    def test_load_from_env_defaults_to_opencode(self, monkeypatch):
+        """OpenCode is the default provider and needs no API key."""
+        monkeypatch.delenv("AI_PROVIDER", raising=False)
+        monkeypatch.delenv("OPENCODE_MODEL", raising=False)
 
         config = AIConfig.load_from_env()
 
-        assert config.default_provider == AIProvider.GOOGLE
-        assert "google" in config.providers
-        assert config.providers["google"].api_key == "test-key-123"
-        assert config.providers["google"].model == "gemini-1.5-pro"
+        assert config.default_provider == AIProvider.OPENCODE
+        assert "opencode" in config.providers
+        assert config.providers["opencode"].model == "opencode-go/deepseek-v4.1-flash"
 
-    def test_load_from_env_openai(self, monkeypatch):
-        """Test loading OpenAI config from environment."""
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-456")
-        monkeypatch.setenv("AI_PROVIDER", "openai")
+    def test_load_from_env_model_override(self, monkeypatch):
+        """OPENCODE_MODEL overrides the default model."""
+        monkeypatch.setenv("OPENCODE_MODEL", "opencode-go/deepseek-v4.1-flash")
+        monkeypatch.setenv("AI_PROVIDER", "opencode")
 
         config = AIConfig.load_from_env()
 
-        assert config.default_provider == AIProvider.OPENAI
-        assert "openai" in config.providers
-        assert config.providers["openai"].api_key == "sk-test-456"
+        assert config.default_provider == AIProvider.OPENCODE
+        assert config.providers["opencode"].model == "opencode-go/deepseek-v4.1-flash"
+
+    def test_load_from_env_invalid_provider_falls_back(self, monkeypatch):
+        """An unknown AI_PROVIDER falls back to OpenCode."""
+        monkeypatch.setenv("AI_PROVIDER", "does-not-exist")
+
+        config = AIConfig.load_from_env()
+
+        assert config.default_provider == AIProvider.OPENCODE
 
     def test_get_provider_config_success(self):
         """Test getting provider config."""
         config = AIConfig(
             providers={
-                "google": ProviderConfig(api_key="test-key", model="gemini-1.5-flash")
+                "opencode": ProviderConfig(model="opencode-go/deepseek-v4.1-flash")
             }
         )
 
-        provider_config = config.get_provider_config(AIProvider.GOOGLE)
-        assert provider_config.api_key == "test-key"
-        assert provider_config.model == "gemini-1.5-flash"
+        provider_config = config.get_provider_config(AIProvider.OPENCODE)
+        assert provider_config.model == "opencode-go/deepseek-v4.1-flash"
 
     def test_get_provider_config_missing_provider(self):
         """Test error when provider config is missing."""
         config = AIConfig(providers={})
 
         with pytest.raises(ValueError, match="No configuration found"):
-            config.get_provider_config(AIProvider.GOOGLE)
+            config.get_provider_config(AIProvider.OPENCODE)
 
-    def test_get_provider_config_missing_api_key(self):
-        """Test error when API key is missing."""
-        config = AIConfig(providers={"google": ProviderConfig(api_key=None)})
+    def test_get_provider_config_needs_no_api_key(self):
+        """OpenCode runs without an API key configured."""
+        config = AIConfig(
+            providers={
+                "opencode": ProviderConfig(model="opencode-go/deepseek-v4.1-flash")
+            }
+        )
 
-        with pytest.raises(ValueError, match="No API key configured"):
-            config.get_provider_config(AIProvider.GOOGLE)
+        provider_config = config.get_provider_config(AIProvider.OPENCODE)
+        assert provider_config.api_key is None
 
 
 class TestAuditResultAnalyzer:
@@ -189,74 +207,112 @@ class TestAuditResultAnalyzer:
         assert "100% compliance" in request
 
 
-class TestGoogleAIProvider:
-    """Test Google AI provider implementation."""
+class TestOpenCodeProvider:
+    """Test OpenCode provider implementation."""
+
+    def test_extract_text_from_event_stream(self):
+        """Text events are concatenated; non-text events ignored."""
+        stdout = _event_stream("Hello ", "world")
+        assert OpenCodeProvider._extract_text(stdout) == "Hello world"
+
+    def test_extract_text_skips_noise(self):
+        """Malformed / non-JSON lines are skipped without raising."""
+        stdout = "not json\n" + _event_stream("ok") + "\n{broken"
+        assert OpenCodeProvider._extract_text(stdout) == "ok"
+
+    def test_default_model(self):
+        """Provider falls back to the DEEPSEEK default model."""
+        provider = OpenCodeProvider(ProviderConfig())
+        assert provider.model == "opencode-go/deepseek-v4.1-flash"
 
     def test_generate_text_success(self):
-        """Test successful text generation."""
-        config = ProviderConfig(api_key="test-key", model="gemini-1.5-flash")
-        provider = GoogleAIProvider(config)
+        """Successful run returns the assistant text."""
+        config = ProviderConfig(model="opencode-go/deepseek-v4.1-flash")
+        provider = OpenCodeProvider(config)
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "candidates": [{"content": {"parts": [{"text": "Generated text"}]}}]
-        }
-        mock_response.raise_for_status = MagicMock()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = _event_stream("Generated text")
+        mock_proc.stderr = ""
 
-        with patch("requests.post", return_value=mock_response) as mock_post:
+        with patch("subprocess.run", return_value=mock_proc) as mock_run:
             result = provider.generate_text("Test prompt")
 
             assert result == "Generated text"
-            assert mock_post.called
-            call_args = mock_post.call_args
-            assert "headers" in call_args[1]
-            assert call_args[1]["headers"]["X-goog-api-key"] == "test-key"
+            assert mock_run.called
+            cmd = mock_run.call_args[0][0]
+            assert "run" in cmd
+            assert "--model" in cmd
+            assert "opencode-go/deepseek-v4.1-flash" in cmd
+            assert "--format" in cmd
 
-    def test_generate_text_retry_on_error(self):
-        """Test retry logic on API errors."""
-        config = ProviderConfig(
-            api_key="test-key", model="gemini-1.5-flash", max_retries=2
-        )
-        provider = GoogleAIProvider(config)
+    def test_generate_text_includes_system_prompt(self):
+        """System prompt is folded into the message."""
+        provider = OpenCodeProvider(ProviderConfig())
 
-        # First call fails, second succeeds
-        mock_response_success = MagicMock()
-        mock_response_success.json.return_value = {
-            "candidates": [{"content": {"parts": [{"text": "Success"}]}}]
-        }
-        mock_response_success.raise_for_status = MagicMock()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = _event_stream("ok")
+        mock_proc.stderr = ""
 
-        # Mock requests.post to succeed on second try
-        with patch("requests.post") as mock_post:
-            # First call raises, second succeeds
-            mock_post.side_effect = [
-                Exception("API Error"),
-                mock_response_success,
-            ]
+        with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            provider.generate_text("Body", system_prompt="Be terse")
 
-            # Should raise because first attempt fails with exception that's not caught
-            with pytest.raises(Exception, match="API Error"):
+            message = mock_run.call_args[0][0][-1]
+            assert "Be terse" in message
+            assert "Body" in message
+
+    def test_generate_text_retries_then_fails(self):
+        """Non-zero exits exhaust retries and raise."""
+        provider = OpenCodeProvider(ProviderConfig(max_retries=2))
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = ""
+        mock_proc.stderr = "boom"
+
+        with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            with pytest.raises(RuntimeError, match="failed after 2 attempts"):
                 provider.generate_text("Test prompt")
 
+            assert mock_run.call_count == 2
+
+    def test_generate_text_recovers_after_transient_failure(self):
+        """A failure followed by success returns the successful text."""
+        provider = OpenCodeProvider(ProviderConfig(max_retries=3))
+
+        fail = MagicMock(returncode=1, stdout="", stderr="boom")
+        ok = MagicMock(returncode=0, stdout=_event_stream("Recovered"), stderr="")
+
+        with patch("subprocess.run", side_effect=[fail, ok]) as mock_run:
+            result = provider.generate_text("Test prompt")
+
+            assert result == "Recovered"
+            assert mock_run.call_count == 2
+
     def test_generate_structured_output(self):
-        """Test structured JSON output generation."""
-        config = ProviderConfig(api_key="test-key", model="gemini-1.5-flash")
-        provider = GoogleAIProvider(config)
+        """Structured output parses JSON, stripping code fences."""
+        provider = OpenCodeProvider(ProviderConfig())
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "candidates": [
-                {"content": {"parts": [{"text": '{"key": "value", "number": 42}'}]}}
-            ]
-        }
-        mock_response.raise_for_status = MagicMock()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = _event_stream('```json\n{"key": "value", "number": 42}\n```')
+        mock_proc.stderr = ""
 
-        with patch("requests.post", return_value=mock_response):
+        with patch("subprocess.run", return_value=mock_proc):
             result = provider.generate_structured_output("Test prompt")
 
             assert isinstance(result, dict)
             assert result["key"] == "value"
             assert result["number"] == 42
+
+    def test_missing_binary_raises(self):
+        """A missing opencode binary produces a clear error."""
+        provider = OpenCodeProvider(ProviderConfig(max_retries=1))
+
+        with patch("subprocess.run", side_effect=FileNotFoundError()):
+            with pytest.raises(RuntimeError, match="not found"):
+                provider.generate_text("Test prompt")
 
 
 class TestAIRemediationEngine:
@@ -265,7 +321,7 @@ class TestAIRemediationEngine:
     def test_clean_yaml_response(self):
         """Test cleaning YAML from AI response."""
         engine = AIRemediationEngine(
-            AIConfig(providers={"google": ProviderConfig(api_key="test", model="test")})
+            AIConfig(providers={"opencode": ProviderConfig(model="test")})
         )
 
         # Test with markdown code block
@@ -306,9 +362,7 @@ firewall_rules:
 """
         mock_get_provider.return_value = mock_provider
 
-        config = AIConfig(
-            providers={"google": ProviderConfig(api_key="test", model="test")}
-        )
+        config = AIConfig(providers={"opencode": ProviderConfig(model="test")})
         engine = AIRemediationEngine(config)
 
         result = engine.generate_remediation_policy(sample_audit_result, sample_policy)
@@ -317,11 +371,48 @@ firewall_rules:
         assert "allow-ssh" in result
         assert mock_provider.generate_text.called
 
+    @patch("audit_agent.ai.remediation.get_provider")
+    def test_generate_and_validate_survives_bad_generation(
+        self, mock_get_provider, sample_audit_result, sample_policy
+    ):
+        """A provider that returns non-YAML must not escape the retry loop."""
+        mock_provider = MagicMock()
+        # First call: prose (invalid YAML). Then valid YAML.
+        mock_provider.generate_text.side_effect = [
+            "destination 192.168.0.111/32 wit\n expected configuration.",
+            """
+metadata:
+  name: test-policy-remediation
+firewall_rules:
+- name: allow-ssh
+  action: allow
+  direction: inbound
+  protocol:
+    name: tcp
+  destination_ports:
+  - number: 22
+""",
+        ]
+        mock_get_provider.return_value = mock_provider
+
+        config = AIConfig(providers={"opencode": ProviderConfig(model="test")})
+        engine = AIRemediationEngine(config)
+
+        # Runs to completion (returns a YAML string) instead of raising.
+        yaml_text, result = engine.generate_and_validate(
+            audit_result=sample_audit_result,
+            original_policy=sample_policy,
+            devices=[],
+            provider=AIProvider.OPENCODE,
+            max_iterations=3,
+        )
+
+        assert isinstance(yaml_text, str)
+        assert mock_provider.generate_text.call_count >= 2
+
     def test_generate_summary_report(self, sample_audit_result):
         """Test generating summary report."""
-        config = AIConfig(
-            providers={"google": ProviderConfig(api_key="test", model="test")}
-        )
+        config = AIConfig(providers={"opencode": ProviderConfig(model="test")})
         engine = AIRemediationEngine(config)
 
         # Create improved result
@@ -349,43 +440,46 @@ firewall_rules:
 class TestProviderFactory:
     """Test provider factory function."""
 
-    def test_get_google_provider(self):
-        """Test getting Google AI provider."""
+    def test_get_opencode_provider(self):
+        """Test getting OpenCode provider."""
         config = AIConfig(
-            default_provider=AIProvider.GOOGLE,
-            providers={"google": ProviderConfig(api_key="test", model="test")},
+            default_provider=AIProvider.OPENCODE,
+            providers={"opencode": ProviderConfig(model="test")},
         )
 
         provider = get_provider(config)
-        assert isinstance(provider, GoogleAIProvider)
+        assert isinstance(provider, OpenCodeProvider)
 
-    def test_get_provider_invalid(self):
-        """Test error with unsupported provider."""
+    def test_get_provider_missing_config(self):
+        """Test error with missing provider configuration."""
         config = AIConfig(
-            default_provider=AIProvider.GOOGLE,
-            providers={"google": ProviderConfig(api_key="test", model="test")},
+            default_provider=AIProvider.OPENCODE,
+            providers={},
         )
 
-        # Test with missing provider configuration
         with pytest.raises(ValueError, match="No configuration found"):
-            config.get_provider_config(AIProvider.OPENAI)
+            get_provider(config)
 
 
 @pytest.mark.integration
 class TestAIIntegration:
-    """Integration tests for AI functionality (requires API key)."""
+    """Integration tests for AI functionality (requires OpenCode)."""
 
-    def test_real_google_ai_call(self):
-        """Test real Google AI API call (skip if no API key)."""
-        import os
+    def test_real_opencode_call(self):
+        """Test a real OpenCode headless call (skip if unavailable/unauthed)."""
+        import shutil
 
-        api_key = os.getenv("GOOGLE_AI_API_KEY")
-        if not api_key:
-            pytest.skip("GOOGLE_AI_API_KEY not set")
+        if not shutil.which("opencode"):
+            pytest.skip("opencode binary not installed")
 
-        config = ProviderConfig(api_key=api_key, model="gemini-2.0-flash-exp")
-        provider = GoogleAIProvider(config)
+        config = ProviderConfig(model="opencode-go/deepseek-v4.1-flash")
+        provider = OpenCodeProvider(config)
 
-        result = provider.generate_text("Say hello in one word")
+        try:
+            result = provider.generate_text("Reply with exactly one word: hello")
+        except RuntimeError as e:
+            # No credentials/model configured for this OpenCode install.
+            pytest.skip(f"opencode not usable in this environment: {e}")
+
         assert len(result) > 0
         assert isinstance(result, str)

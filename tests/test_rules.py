@@ -61,6 +61,15 @@ class TestBaseRule:
         assert "production" in rule.tags
         assert len(rule.tags) == 2
 
+    def test_tags_coerced_to_strings(self):
+        """Structured tag values from LLM output are coerced to strings."""
+        rule = BaseRule(tags=[{"device-rule": "-A INPUT -p tcp --dport 80 -j ACCEPT"}])
+        assert rule.tags == ["{'device-rule': '-A INPUT -p tcp --dport 80 -j ACCEPT'}"]
+
+        assert BaseRule(tags=None).tags == []
+        assert BaseRule(tags="single").tags == ["single"]
+        assert BaseRule(tags=[1, 2]).tags == ["1", "2"]
+
 
 class TestFirewallRule:
     """Test cases for FirewallRule class."""

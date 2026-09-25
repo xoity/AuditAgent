@@ -33,7 +33,7 @@ firewall_rules:
     description: "Allow HTTP access on port 80"
     enabled: true
     priority: 20
-    action: "allow"
+    action: "deny"
     direction: "inbound"
     protocol:
       name: "tcp"

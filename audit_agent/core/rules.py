@@ -3,11 +3,27 @@ Core rule definitions for network security policies.
 """
 
 from enum import Enum
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .objects import IPAddress, IPRange, Port, Protocol, Service, Zone
+
+
+def _coerce_tags(value: Any) -> List[str]:
+    """Coerce arbitrary tag values into strings.
+
+    LLMs occasionally emit structured tags (e.g. ``{'device-rule': '...'}``);
+    rendering them as strings keeps the policy loadable instead of failing
+    validation outright.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
+    return [str(value)]
 
 
 class Action(str, Enum):
@@ -37,6 +53,11 @@ class BaseRule(BaseModel):
     enabled: bool = True
     priority: int = 100
     tags: List[str] = []
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _validate_tags(cls, value: Any) -> List[str]:
+        return _coerce_tags(value)
 
     def add_tag(self, tag: str) -> "BaseRule":
         """Add a tag to this rule."""

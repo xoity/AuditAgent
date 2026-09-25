@@ -2,6 +2,7 @@
 Linux iptables firewall device implementation.
 """
 
+import ipaddress
 import re
 import shlex
 from typing import List, Optional
@@ -20,6 +21,133 @@ from .base import (
 )
 
 logger = get_logger(__name__)
+
+# Tokens that must never appear in a command we execute. AuditAgent generates
+# its own commands, so their presence means the command did not come from the
+# deterministic engine.
+_SHELL_HARD_REJECT = (
+    "`",
+    "$(",
+    "\n",
+    "\r",
+    ";",
+    "&&",
+    "||",
+    "|",
+    ">",
+    "<",
+    "&",
+)
+_AA_DIR = "/run/auditagent"
+_AA_COMMIT_MARKER = f"{_AA_DIR}/commit"
+_AA_WATCHDOG = f"{_AA_DIR}/watchdog.sh"
+_AA_WATCHDOG_PID = f"{_AA_DIR}/watchdog.pid"
+
+_SAFE_EXACT_COMMANDS = {
+    "hostname",
+    "cat /etc/os-release",
+    "uname -r",
+    "ip link show | grep '^[0-9]' | awk '{print $2}' | sed 's/:$//'",
+    "iptables -L | grep '^Chain' | awk '{print $2}'",
+    "iptables -L -n | grep -v '^Chain' | grep -v '^target'",
+    "iptables-save",
+    "ip6tables-save",
+    "iptables --version",
+    "iptables -L -n",
+    "iptables -L -n --line-numbers",
+    "iptables -t nat -L -n --line-numbers",
+}
+
+# Whole-command templates that are allowed to use shell control syntax. These
+# are emitted verbatim by AuditAgent's own watchdog arming/teardown and contain
+# no caller-supplied data, so metacharacters here are structural, not injection.
+_TRUSTED_TEMPLATES = (
+    re.compile(
+        r"^printf '%s' '[A-Za-z0-9+/=]+' \| base64 -d \| "
+        r"sudo (?:iptables-restore|ip6tables-restore)$"
+    ),
+    re.compile(
+        rf"^printf '%s' '[A-Za-z0-9+/=]+' \| base64 -d \| "
+        rf"sudo tee {re.escape(_AA_WATCHDOG)}$"
+    ),
+    re.compile(rf"^sudo install -d -m 0700 -o root -g root {re.escape(_AA_DIR)}$"),
+    re.compile(
+        rf"^sudo sh -c 'if \[ -f {re.escape(_AA_WATCHDOG_PID)} \]; then "
+        rf"read -r _aa_pid < {re.escape(_AA_WATCHDOG_PID)} "
+        rf'&& kill "\$_aa_pid"; fi\'$'
+    ),
+    re.compile(rf"^sudo rm -f {re.escape(_AA_COMMIT_MARKER)}$"),
+    re.compile(
+        rf"^sudo setsid sh {re.escape(_AA_WATCHDOG)} "
+        rf"</dev/null >/dev/null 2>&1 &$"
+    ),
+    re.compile(rf"^sudo touch {re.escape(_AA_COMMIT_MARKER)}$"),
+)
+
+
+def validate_command_safety(command: str) -> Optional[str]:
+    """Return an error string if *command* must be rejected, else None.
+
+    This is the deterministic pre-flight gate for anything handed to the shell.
+    It replaces the previous "log and continue" behaviour so that unparsed
+    flags, arbitrary pipes or shell metacharacters are rejected before the
+    command reaches the target host.
+    """
+    if command in _SAFE_EXACT_COMMANDS or any(
+        pattern.fullmatch(command) for pattern in _TRUSTED_TEMPLATES
+    ):
+        return None
+    for token in _SHELL_HARD_REJECT:
+        if token in command:
+            return f"forbidden shell syntax {token!r}"
+    try:
+        parts = shlex.split(command)
+    except ValueError as exc:
+        return f"invalid shell syntax: {exc}"
+    if _is_approved_iptables_rule(parts):
+        return None
+    return "command does not match an approved form"
+
+
+def _is_approved_iptables_rule(parts: List[str]) -> bool:
+    if len(parts) < 5 or parts[0] != "iptables":
+        return False
+    if parts[1] not in {"-A", "-D"}:
+        return False
+    if parts[2] not in {"INPUT", "OUTPUT", "FORWARD", "PREROUTING", "POSTROUTING"}:
+        return False
+
+    jump = False
+    i = 3
+    while i < len(parts):
+        flag = parts[i]
+        if i + 1 >= len(parts):
+            return False
+        value = parts[i + 1]
+        if flag in {"-p", "-m"}:
+            if value not in {"tcp", "udp", "icmp"}:
+                return False
+        elif flag in {"-s", "-d"}:
+            try:
+                ipaddress.ip_network(value, strict=False)
+            except ValueError:
+                return False
+        elif flag in {"--dport", "--sport"}:
+            bounds = value.split(":", 1)
+            if not all(
+                bound.isdigit() and 0 <= int(bound) <= 65535 for bound in bounds
+            ):
+                return False
+        elif flag == "-j":
+            if value not in {"ACCEPT", "DROP", "REJECT", "LOG"}:
+                return False
+            jump = True
+        elif flag == "--log-prefix":
+            pass
+        else:
+            return False
+        i += 2
+    return jump
 
 
 def firewall_rule_to_commands(rule: FirewallRule) -> List[str]:
@@ -348,29 +476,19 @@ class LinuxIptables(FirewallDevice):
         try:
             original_command = command
 
-            # Validate command input to prevent obvious injection attempts
-            # Check for dangerous command chaining or injection patterns
-            dangerous_patterns = [";", "&&", "||", "|", "`", "$(", "\n", "\r"]
-            # Allow pipe only for specific safe commands
-            if any(pattern in command for pattern in dangerous_patterns):
-                # Check if it's an allowed pattern (like iptables-save, base64 piping, etc)
-                allowed_commands = [
-                    "iptables-save",
-                    "ip6tables-save",
-                    "base64 -d",
-                    "grep",
-                    "awk",
-                    "sed",
-                    "sort",
-                    "uniq",
-                    "wc",
-                    "cat /etc/",
-                ]
-                if not any(allowed in command for allowed in allowed_commands):
-                    logger.warning(
-                        "Potentially dangerous command detected: %s", command
-                    )
-                    # Still allow but log it - in production you might want to reject
+            # Deterministic safety gate: commands are generated by AuditAgent
+            # itself, so anything carrying shell metacharacters we never emit
+            # is rejected outright rather than logged and run.
+            safety_error = validate_command_safety(command)
+            if safety_error:
+                logger.error("Command rejected: %s (%s)", command, safety_error)
+                return CommandResult(
+                    command=command,
+                    success=False,
+                    output="",
+                    error=f"Command rejected by safety validator: {safety_error}",
+                    execution_time=time.time() - start_time,
+                )
 
             # Determine if sudo is needed
             if use_sudo is None:
@@ -583,6 +701,221 @@ class LinuxIptables(FirewallDevice):
             )
             or None,
             execution_time=sum(result.execution_time for result in results),
+        )
+
+    async def _write_remote_file(self, path: str, content: str) -> CommandResult:
+        """Write a file on the target host without exposing it to the shell."""
+        import base64
+
+        encoded = base64.b64encode(content.encode()).decode()
+        return await self.execute_command(
+            f"printf '%s' '{encoded}' | base64 -d | sudo tee {path}",
+            use_sudo=False,
+        )
+
+    async def apply_transaction(
+        self,
+        commands: List[str],
+        timeout: int = 60,
+        backup: Optional[str] = None,
+    ) -> CommandResult:
+        """Apply commands with an on-host timeout rollback.
+
+        Before anything is applied, a detached watchdog script is started on
+        the target host. It sleeps ``timeout`` seconds and, unless a commit
+        marker has appeared, restores the snapshot captured here. If the change
+        cuts the SSH session, the client can no longer roll back - the watchdog
+        on the host still does.
+
+        ``backup`` may be a snapshot from :meth:`backup_configuration`; if
+        omitted one is taken now. Devices that do not expose the standard
+        IPv4/IPv6 snapshot (e.g. the simulator) fall back to a plain apply with
+        in-band rollback, since they have no remote session to lose.
+        """
+        import json
+        import time
+
+        start_time = time.time()
+
+        if not self._ssh_client and not hasattr(self, "state_file"):
+            return CommandResult(
+                command="apply_transaction",
+                success=False,
+                output="",
+                error="Not connected to device",
+                execution_time=0.0,
+            )
+
+        try:
+            snapshot = (
+                backup if backup is not None else await self.backup_configuration()
+            )
+            snapshots = json.loads(snapshot)
+        except Exception as exc:  # noqa: BLE001 - surface any snapshot failure
+            return CommandResult(
+                command="apply_transaction",
+                success=False,
+                output="",
+                error=f"Failed to capture rollback snapshot: {exc}",
+                execution_time=time.time() - start_time,
+            )
+
+        if "ipv4" not in snapshots:
+            # Simulator-style device: no persistent host to lock out.
+            results = await self.execute_commands_batch(commands, stop_on_error=True)
+            success = bool(results) and all(r.success for r in results)
+            restore = None
+            if not success:
+                restore = await self.restore_configuration(snapshot)
+            return CommandResult(
+                command="apply_transaction",
+                success=success,
+                output="Applied (in-band rollback only)" if success else "",
+                error=None
+                if success
+                else (
+                    "Apply failed; rolled back in-band"
+                    if restore and restore.success
+                    else f"Apply failed and rollback failed: {restore.error if restore else 'unknown error'}"
+                ),
+                execution_time=time.time() - start_time,
+                rollback_performed=bool(restore and restore.success),
+                rollback_attempted=not success,
+            )
+
+        import base64
+
+        b64_v4 = base64.b64encode(snapshots["ipv4"].encode()).decode()
+        b64_v6 = base64.b64encode(snapshots["ipv6"].encode()).decode()
+        watchdog = (
+            "#!/bin/sh\n"
+            "exec >/dev/null 2>&1\n"
+            f"echo $$ > {_AA_WATCHDOG_PID}\n"
+            f"sleep {int(timeout)}\n"
+            f"if [ -f {_AA_COMMIT_MARKER} ]; then\n"
+            f"  rm -f {_AA_COMMIT_MARKER} {_AA_WATCHDOG} {_AA_WATCHDOG_PID}\n"
+            "else\n"
+            f"  printf '%s' '{b64_v4}' | base64 -d | iptables-restore\n"
+            f"  printf '%s' '{b64_v6}' | base64 -d | ip6tables-restore\n"
+            f"  rm -f {_AA_WATCHDOG_PID}\n"
+            "fi\n"
+        )
+
+        prepare_dir = await self.execute_command(
+            f"sudo install -d -m 0700 -o root -g root {_AA_DIR}",
+            use_sudo=False,
+        )
+        if not prepare_dir.success:
+            return CommandResult(
+                command="apply_transaction",
+                success=False,
+                output="",
+                error=f"Failed to prepare rollback watchdog: {prepare_dir.error}",
+                execution_time=time.time() - start_time,
+            )
+
+        # Stop any watchdog left over from a previous transaction, then arm a
+        # fresh one and clear the commit marker for this transaction. Kill via
+        # the PID file: `pkill -f <script>` would match this very command's
+        # argv and take the session down with it.
+        stopped = await self.execute_command(
+            f"sudo sh -c 'if [ -f {_AA_WATCHDOG_PID} ]; then "
+            f'read -r _aa_pid < {_AA_WATCHDOG_PID} && kill "$_aa_pid"; fi\'',
+            use_sudo=False,
+        )
+        if not stopped.success:
+            return CommandResult(
+                command="apply_transaction",
+                success=False,
+                output="",
+                error=f"Failed to stop previous rollback watchdog: {stopped.error}",
+                execution_time=time.time() - start_time,
+            )
+        cleared = await self.execute_command(
+            f"sudo rm -f {_AA_COMMIT_MARKER}",
+            use_sudo=False,
+        )
+        if not cleared.success:
+            return CommandResult(
+                command="apply_transaction",
+                success=False,
+                output="",
+                error=f"Failed to clear rollback commit marker: {cleared.error}",
+                execution_time=time.time() - start_time,
+            )
+        write_script = await self._write_remote_file(_AA_WATCHDOG, watchdog)
+        if not write_script.success:
+            return CommandResult(
+                command="apply_transaction",
+                success=False,
+                output="",
+                error=f"Failed to arm rollback watchdog: {write_script.error}",
+                execution_time=time.time() - start_time,
+            )
+        # Detach fully: supervisor-less setsid + all streams redirected, so the
+        # watchdog outlives the SSH channel.
+        armed = await self.execute_command(
+            f"sudo setsid sh {_AA_WATCHDOG} </dev/null >/dev/null 2>&1 &",
+            use_sudo=False,
+        )
+        if not armed.success:
+            return CommandResult(
+                command="apply_transaction",
+                success=False,
+                output="",
+                error=f"Failed to start rollback watchdog: {armed.error}",
+                execution_time=time.time() - start_time,
+            )
+
+        results = await self.execute_commands_batch(commands, stop_on_error=True)
+        success = bool(results) and all(r.success for r in results)
+
+        if success:
+            committed = await self.execute_command(
+                f"sudo touch {_AA_COMMIT_MARKER}", use_sudo=False
+            )
+            if not committed.success:
+                return CommandResult(
+                    command="apply_transaction",
+                    success=False,
+                    output="",
+                    error=f"Applied but failed to disarm rollback watchdog: {committed.error}",
+                    execution_time=time.time() - start_time,
+                    rollback_attempted=True,
+                )
+            return CommandResult(
+                command="apply_transaction",
+                success=True,
+                output="Applied and committed; rollback watchdog disarmed",
+                execution_time=time.time() - start_time,
+            )
+
+        # Apply failed while the session is still alive: roll back immediately
+        # and disarm the watchdog so it does not fire a second time.
+        restore = await self.restore_configuration(snapshot)
+        if restore.success:
+            disarmed = await self.execute_command(
+                f"sudo touch {_AA_COMMIT_MARKER}", use_sudo=False
+            )
+            if not disarmed.success:
+                return CommandResult(
+                    command="apply_transaction",
+                    success=False,
+                    output="",
+                    error=f"Rollback restored but watchdog disarm failed: {disarmed.error}",
+                    execution_time=time.time() - start_time,
+                    rollback_attempted=True,
+                )
+        return CommandResult(
+            command="apply_transaction",
+            success=False,
+            output="Rolled back after failed apply" if restore.success else "",
+            error="Apply failed; rolled back"
+            if restore.success
+            else f"Apply failed and rollback failed: {restore.error}",
+            execution_time=time.time() - start_time,
+            rollback_performed=restore.success,
+            rollback_attempted=True,
         )
 
     async def get_device_info(self) -> DeviceInfo:

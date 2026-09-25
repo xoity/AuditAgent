@@ -109,8 +109,9 @@ audit-agent audit policy.yaml devices.yaml
 AuditAgent now includes AI-powered automatic remediation that uses advanced language models to analyze compliance issues and generate corrected policies:
 
 ```bash
-# Set your Google AI Studio API key (free tier available)
-export GOOGLE_AI_API_KEY="your-key-here"
+# OpenCode must be installed and configured with a model (owns credentials/routing)
+# Optional: select a specific model
+export OPENCODE_MODEL="opencode-go/deepseek-v4.1-flash"
 
 # Generate and apply AI-powered remediation
 audit-agent ai-remediate policy.yaml devices.yaml --apply
@@ -121,9 +122,8 @@ audit-agent ai-remediate policy.yaml devices.yaml --apply
 - 🎯 Achieves 100% compliance automatically
 - 🔄 Iterative refinement for optimal results
 - 📊 Detailed analysis and summary reports
-- 🌐 Supports Google AI Studio (Gemini), OpenAI, Azure OpenAI
-- 🔒 Secure local API key management
-- 🚀 Designed for future web-based management
+- 🌐 Runs through the local OpenCode runner, so any OpenCode model works
+- 🔒 Credentials stay inside OpenCode's own auth store
 
 For complete documentation, see [AI Remediation Guide](docs/AI_REMEDIATION.md).
 

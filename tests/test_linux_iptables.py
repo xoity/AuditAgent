@@ -245,7 +245,7 @@ class TestLinuxIptables:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(device.connect())
-        result = loop.run_until_complete(device.execute_command("ls -la"))
+        result = loop.run_until_complete(device.execute_command("hostname"))
         loop.close()
 
         # Verify command execution

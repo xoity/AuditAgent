@@ -40,6 +40,12 @@ class TestPolicyMetadata:
         assert metadata.description == "Test description"
         assert metadata.version == "1.0.0"
 
+    def test_metadata_tags_coerced_to_strings(self):
+        """Structured metadata tags from LLM output are coerced to strings."""
+        metadata = PolicyMetadata(name="p", tags=[{"note": "x"}, "plain"])
+        assert metadata.tags == ["{'note': 'x'}", "plain"]
+        assert PolicyMetadata(name="p", tags=None).tags == []
+
 
 class TestNetworkPolicy:
     """Test cases for NetworkPolicy class."""
