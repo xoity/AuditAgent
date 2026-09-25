@@ -3,11 +3,11 @@ AI provider implementations for different services.
 """
 
 import json
-import time
+import os
+import shutil
+import subprocess
 from abc import ABC, abstractmethod
 from typing import Any, Optional
-
-import requests
 
 from ..core.logging_config import get_logger
 from .config import AIConfig, AIProvider, ProviderConfig
@@ -47,13 +47,83 @@ class AIProviderBase(ABC):
         pass
 
 
-class GoogleAIProvider(AIProviderBase):
-    """Google AI Studio (Gemini) provider implementation."""
+class OpenCodeProvider(AIProviderBase):
+    """
+    OpenCode provider.
+
+    Shells out to the local ``opencode run`` headless mode and parses the
+    JSON event stream it emits. No API key or network client is needed here:
+    OpenCode owns provider credentials and model routing, so any model
+    configured in OpenCode (e.g. ``opencode-go/deepseek-v4.1-flash``) becomes
+    usable as an AuditAgent AI backend.
+    """
+
+    # ponytail: default model is the one we actually route in this environment.
+    # Swap via OPENCODE_MODEL / ProviderConfig.model for any other OpenCode model.
+    DEFAULT_MODEL = "opencode-go/deepseek-v4.1-flash"
 
     def __init__(self, config: ProviderConfig):
         super().__init__(config)
-        self.base_url = "https://generativelanguage.googleapis.com/v1beta"
-        self.model = config.model or "gemini-1.5-flash"  # Use stable flash model
+        self.model = config.model or self.DEFAULT_MODEL
+        self.binary = os.getenv("OPENCODE_BIN", "opencode")
+
+    def _run(self, message: str) -> str:
+        """Invoke ``opencode run`` once and return the assistant's text."""
+        binary = shutil.which(self.binary) or self.binary
+        cmd = [
+            binary,
+            "run",
+            "--model",
+            self.model,
+            "--format",
+            "json",
+            message,
+        ]
+        logger.debug("Calling OpenCode with model %s", self.model)
+
+        try:
+            proc = subprocess.run(  # noqa: S603 - fixed binary + arg list, no shell
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as e:
+            msg = f"OpenCode call timed out after {self.timeout}s"
+            raise RuntimeError(msg) from e
+        except FileNotFoundError as e:
+            msg = (
+                f"OpenCode binary {self.binary!r} not found. "
+                "Install OpenCode or set OPENCODE_BIN."
+            )
+            raise RuntimeError(msg) from e
+
+        if proc.returncode != 0:
+            detail = proc.stderr.strip() or proc.stdout.strip() or "<no output>"
+            msg = f"OpenCode exited {proc.returncode}: {detail}"
+            raise RuntimeError(msg)
+
+        return self._extract_text(proc.stdout)
+
+    @staticmethod
+    def _extract_text(stdout: str) -> str:
+        """Concatenate ``text`` events from the OpenCode JSON event stream."""
+        parts = []
+        for line in stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                logger.debug("Skipping non-JSON OpenCode output: %s", line)
+                continue
+            if event.get("type") == "text":
+                text = event.get("part", {}).get("text")
+                if text:
+                    parts.append(text)
+        return "".join(parts)
 
     def generate_text(
         self,
@@ -62,74 +132,25 @@ class GoogleAIProvider(AIProviderBase):
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
     ) -> str:
-        """Generate text using Gemini API."""
-        url = f"{self.base_url}/models/{self.model}:generateContent"
+        """Generate text using a headless OpenCode run."""
+        # ponytail: ``opencode run`` has no system-prompt flag, so fold the
+        # system prompt into the message. Fine for single-turn completions.
+        message = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
 
-        # Build the contents array
-        contents = []
-        if system_prompt:
-            contents.append({"role": "user", "parts": [{"text": system_prompt}]})
-            contents.append(
-                {
-                    "role": "model",
-                    "parts": [
-                        {"text": "Understood. I will follow these instructions."}
-                    ],
-                }
-            )
-
-        contents.append({"role": "user", "parts": [{"text": prompt}]})
-
-        payload = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_tokens or 8192,
-            },
-        }
-
-        headers = {
-            "Content-Type": "application/json",
-            "X-goog-api-key": self.api_key,
-        }
-
-        logger.debug("Calling Google AI with model %s", self.model)
-
+        last_error = None
         for attempt in range(self.max_retries):
             try:
-                response = requests.post(
-                    url,
-                    json=payload,
-                    headers=headers,
-                    timeout=self.timeout,
-                )
-                response.raise_for_status()
-
-                result = response.json()
-                if "candidates" in result and result["candidates"]:
-                    text = result["candidates"][0]["content"]["parts"][0]["text"]
-                    logger.debug("Generated %s characters", len(text))
-                    return text
-                else:
-                    msg = f"No candidates in response: {result}"
+                text = self._run(message)
+                if not text:
+                    msg = "OpenCode returned no text events"
                     raise ValueError(msg)
-
-            except requests.exceptions.RequestException as e:
+                logger.debug("Generated %s characters", len(text))
+                return text
+            except (RuntimeError, ValueError) as e:
+                last_error = e
                 logger.warning("Attempt %s failed: %s", attempt + 1, e)
-                if attempt == self.max_retries - 1:
-                    raise
-                # Exponential backoff for rate limits
-                if "429" in str(e):
-                    wait_time = (2**attempt) * 2  # 2, 4, 8 seconds
-                    logger.info("Rate limited. Waiting %ss before retry...", wait_time)
-                    time.sleep(wait_time)
-                else:
-                    time.sleep(1)
-            except (KeyError, IndexError, ValueError) as e:
-                logger.error("Failed to parse response: %s", e)
-                raise
 
-        msg = "Max retries exceeded"
+        msg = f"OpenCode call failed after {self.max_retries} attempts: {last_error}"
         raise RuntimeError(msg)
 
     def generate_structured_output(
@@ -138,8 +159,7 @@ class GoogleAIProvider(AIProviderBase):
         system_prompt: Optional[str] = None,
         temperature: float = 0.3,
     ) -> dict[str, Any]:
-        """Generate structured JSON output using Gemini API."""
-        # Enhance system prompt to request JSON
+        """Generate structured JSON output using a headless OpenCode run."""
         json_system = (
             "You are a precise JSON generator. "
             "Always respond with valid JSON only, no markdown formatting, no explanations."
@@ -149,20 +169,9 @@ class GoogleAIProvider(AIProviderBase):
 
         json_prompt = f"{prompt}\n\nRespond with valid JSON only."
 
-        response_text = self.generate_text(
+        response_text = _strip_code_fence(self.generate_text(
             json_prompt, system_prompt=json_system, temperature=temperature
-        )
-
-        # Clean up response (remove markdown if present)
-        response_text = response_text.strip()
-        if response_text.startswith("```json"):
-            response_text = response_text[7:]
-        if response_text.startswith("```"):
-            response_text = response_text[3:]
-        if response_text.endswith("```"):
-            response_text = response_text[:-3]
-
-        response_text = response_text.strip()
+        ))
 
         try:
             return json.loads(response_text)
@@ -172,100 +181,16 @@ class GoogleAIProvider(AIProviderBase):
             raise
 
 
-class OpenAIProvider(AIProviderBase):
-    """OpenAI provider implementation (for future use)."""
-
-    def __init__(self, config: ProviderConfig):
-        super().__init__(config)
-        self.base_url = config.endpoint or "https://api.openai.com/v1"
-        self.model = config.model or "gpt-4o-mini"
-
-    def generate_text(
-        self,
-        prompt: str,
-        system_prompt: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: Optional[int] = None,
-    ) -> str:
-        """Generate text using OpenAI API."""
-        url = f"{self.base_url}/chat/completions"
-
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature,
-        }
-
-        if max_tokens:
-            payload["max_tokens"] = max_tokens
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
-
-        logger.debug("Calling OpenAI with model %s", self.model)
-
-        for attempt in range(self.max_retries):
-            try:
-                response = requests.post(
-                    url, json=payload, headers=headers, timeout=self.timeout
-                )
-                response.raise_for_status()
-
-                result = response.json()
-                text = result["choices"][0]["message"]["content"]
-                logger.debug("Generated %s characters", len(text))
-                return text
-
-            except requests.exceptions.RequestException as e:
-                logger.warning("Attempt %s failed: %s", attempt + 1, e)
-                if attempt == self.max_retries - 1:
-                    raise
-
-        msg = "Max retries exceeded"
-        raise RuntimeError(msg)
-
-    def generate_structured_output(
-        self,
-        prompt: str,
-        system_prompt: Optional[str] = None,
-        temperature: float = 0.3,
-    ) -> dict[str, Any]:
-        """Generate structured JSON output using OpenAI API."""
-        json_system = (
-            "You are a precise JSON generator. "
-            "Always respond with valid JSON only, no markdown formatting."
-        )
-        if system_prompt:
-            json_system += f"\n\n{system_prompt}"
-
-        json_prompt = f"{prompt}\n\nRespond with valid JSON only."
-
-        response_text = self.generate_text(
-            json_prompt, system_prompt=json_system, temperature=temperature
-        )
-
-        response_text = response_text.strip()
-        if response_text.startswith("```json"):
-            response_text = response_text[7:]
-        if response_text.startswith("```"):
-            response_text = response_text[3:]
-        if response_text.endswith("```"):
-            response_text = response_text[:-3]
-
-        response_text = response_text.strip()
-
-        try:
-            return json.loads(response_text)
-        except json.JSONDecodeError as e:
-            logger.error("Failed to parse JSON response: %s", e)
-            raise
+def _strip_code_fence(text: str) -> str:
+    """Remove a surrounding markdown code fence, if present."""
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
 
 
 def get_provider(
@@ -275,13 +200,8 @@ def get_provider(
     provider = provider or config.default_provider
     provider_config = config.get_provider_config(provider)
 
-    if provider == AIProvider.GOOGLE:
-        return GoogleAIProvider(provider_config)
-    elif provider == AIProvider.OPENAI:
-        return OpenAIProvider(provider_config)
-    elif provider == AIProvider.AZURE_OPENAI:
-        # Azure uses same implementation as OpenAI but with custom endpoint
-        return OpenAIProvider(provider_config)
-    else:
-        msg = f"Unsupported provider: {provider}"
-        raise ValueError(msg)
+    if provider == AIProvider.OPENCODE:
+        return OpenCodeProvider(provider_config)
+
+    msg = f"Unsupported provider: {provider}"
+    raise ValueError(msg)

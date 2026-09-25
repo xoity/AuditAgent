@@ -18,9 +18,7 @@ logger = get_logger(__name__)
 class AIProvider(str, Enum):
     """Supported AI providers."""
 
-    GOOGLE = "google"
-    OPENAI = "openai"
-    AZURE_OPENAI = "azure_openai"
+    OPENCODE = "opencode"
 
 
 class ProviderConfig(BaseModel):
@@ -36,7 +34,7 @@ class ProviderConfig(BaseModel):
 class AIConfig(BaseModel):
     """AI integration configuration."""
 
-    default_provider: AIProvider = Field(default=AIProvider.GOOGLE)
+    default_provider: AIProvider = Field(default=AIProvider.OPENCODE)
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 
     @classmethod
@@ -64,41 +62,24 @@ class AIConfig(BaseModel):
     @classmethod
     def load_from_env(cls) -> "AIConfig":
         """Load configuration from environment variables."""
-        providers = {}
-
-        # Google AI Studio (Gemini)
-        google_api_key = os.getenv("GOOGLE_AI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        if google_api_key:
-            providers["google"] = ProviderConfig(
-                api_key=google_api_key,
-                model=os.getenv("GOOGLE_AI_MODEL", "gemini-2.0-flash-exp"),
+        # OpenCode owns provider credentials and model routing, so no API key
+        # is required here. OPENCODE_MODEL selects which OpenCode model to use.
+        providers = {
+            "opencode": ProviderConfig(
+                model=os.getenv("OPENCODE_MODEL")
+                or "opencode-go/deepseek-v4.1-flash",
+                timeout=int(os.getenv("OPENCODE_TIMEOUT", "60")),
             )
-
-        # OpenAI
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if openai_api_key:
-            providers["openai"] = ProviderConfig(
-                api_key=openai_api_key,
-                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-            )
-
-        # Azure OpenAI
-        azure_api_key = os.getenv("AZURE_OPENAI_API_KEY")
-        if azure_api_key:
-            providers["azure_openai"] = ProviderConfig(
-                api_key=azure_api_key,
-                model=os.getenv("AZURE_OPENAI_MODEL"),
-                endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-            )
+        }
 
         # Determine default provider
-        default_provider = AIProvider.GOOGLE
+        default_provider = AIProvider.OPENCODE
         if os.getenv("AI_PROVIDER"):
             try:
                 default_provider = AIProvider(os.getenv("AI_PROVIDER").lower())
             except ValueError:
                 logger.warning(
-                    "Invalid AI_PROVIDER: %s, using Google", os.getenv("AI_PROVIDER")
+                    "Invalid AI_PROVIDER: %s, using OpenCode", os.getenv("AI_PROVIDER")
                 )
 
         return cls(default_provider=default_provider, providers=providers)
@@ -112,10 +93,6 @@ class AIConfig(BaseModel):
 
         if not config:
             msg = f"No configuration found for provider: {provider.value}"
-            raise ValueError(msg)
-
-        if not config.api_key:
-            msg = f"No API key configured for provider: {provider.value}"
             raise ValueError(msg)
 
         return config
