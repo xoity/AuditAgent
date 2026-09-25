@@ -12,6 +12,7 @@ from ..core.logging_config import get_logger
 from ..core.policy import NetworkPolicy
 from ..core.rules import BaseRule, FirewallRule
 from ..devices.base import ConfigurationItem, NetworkDevice
+from .anomaly import Anomaly, analyze_config_items
 
 logger = get_logger(__name__)
 
@@ -93,6 +94,13 @@ class RuleComparer:
 
     def __init__(self):
         self._current_device_config = None
+        # Raw contents of device rules nullified by an earlier rule. Populated
+        # by AuditEngine.audit_device before rules are compared.
+        self._shadowed_contents: set = set()
+
+    def set_shadowed_contents(self, contents) -> None:
+        """Record which device rule contents are shadowed/unreachable."""
+        self._shadowed_contents = set(contents or ())
 
     def compare_firewall_rule(
         self, policy_rule: FirewallRule, device_config: List[ConfigurationItem]
@@ -106,7 +114,33 @@ class RuleComparer:
         # Find matching rules in device configuration
         matching_rules = self._find_matching_firewall_rules(policy_rule, device_config)
 
-        if not matching_rules:
+        # A rule can be textually present yet semantically dead if an earlier
+        # rule already matches every packet. Treat "all matches shadowed" the
+        # same as "rule not enforced".
+        effective_rules = [
+            r for r in matching_rules if r.content not in self._shadowed_contents
+        ]
+
+        if matching_rules and not effective_rules:
+            issues.append(
+                ComplianceIssue(
+                    severity="critical",
+                    rule_id=policy_rule.id,
+                    rule_name=policy_rule.name,
+                    issue_type="policy_violation",
+                    description=(
+                        f"Required rule '{policy_rule.name or policy_rule.id}' exists "
+                        "on the device but is shadowed by an earlier rule and never takes effect"
+                    ),
+                    device="",  # Will be set by caller
+                    recommendation=(
+                        "Reorder or narrow the earlier rule so this rule becomes reachable"
+                    ),
+                    current_config="; ".join(r.content for r in matching_rules),
+                    expected_config=policy_rule,
+                )
+            )
+        elif not matching_rules:
             # Rule is missing from device
             issues.append(
                 ComplianceIssue(
@@ -122,7 +156,7 @@ class RuleComparer:
             )
         else:
             # Check if existing rules match the policy
-            for device_rule in matching_rules:
+            for device_rule in effective_rules:
                 rule_issues = self._validate_firewall_rule_match(
                     policy_rule, device_rule
                 )
@@ -615,6 +649,15 @@ class AuditEngine:
                 audit_timestamp=datetime.datetime.now().isoformat(),
             )
 
+        # Semantic pre-flight: detect ordering conflicts (shadowing/redundancy)
+        # across the chain. Shadowed contents are handed to the comparer so a
+        # policy rule that is textually present but unreachable is not scored
+        # as compliant.
+        anomalies, shadowed_contents = analyze_config_items(config_items)
+        self.rule_comparer.set_shadowed_contents(shadowed_contents)
+        for anomaly in anomalies:
+            issues.append(self._anomaly_to_issue(anomaly, device))
+
         # Check each policy rule against device configuration
         all_policy_rules = policy.get_enabled_rules()
         total_rules = len(all_policy_rules)
@@ -673,6 +716,29 @@ class AuditEngine:
             issues=issues,
             compliance_percentage=compliance_percentage,
             audit_timestamp=datetime.datetime.now().isoformat(),
+        )
+
+    @staticmethod
+    def _anomaly_to_issue(anomaly: Anomaly, device: NetworkDevice) -> ComplianceIssue:
+        """Convert a semantic anomaly into a reportable compliance issue."""
+        issue_type = "shadowed_rule" if anomaly.kind == "shadowing" else "redundant_rule"
+        if anomaly.kind == "shadowing":
+            recommendation = (
+                "Reorder or narrow the earlier rule so the shadowed rule becomes "
+                "reachable, or remove the shadowed rule"
+            )
+        else:
+            recommendation = "Remove the redundant rule"
+        return ComplianceIssue(
+            severity=anomaly.severity,
+            rule_id=None,
+            rule_name=None,
+            issue_type=issue_type,
+            description=f"{anomaly.description}: {anomaly.rule_content}",
+            device=str(device),
+            recommendation=recommendation,
+            current_config=anomaly.rule_content,
+            expected_config=None,
         )
 
     def generate_audit_report(

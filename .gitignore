@@ -193,3 +193,4 @@ htmlcov/
 
 # AuditAgent config
 .audit-agent/
+.vagrant/

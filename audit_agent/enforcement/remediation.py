@@ -6,7 +6,6 @@ import datetime
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
-
 from pydantic import BaseModel
 
 from ..audit.engine import ComplianceIssue, PolicyAuditResult
@@ -625,8 +624,11 @@ class RemediationPlanner:
 class RemediationExecutor:
     """Executes remediation plans with safety measures and rollback capabilities."""
 
-    def __init__(self):
+    def __init__(self, watchdog_timeout: Optional[int] = None):
         self.validator = RemediationValidator()
+        # Seconds an on-host rollback watchdog waits for a commit signal.
+        # None disables transactional enforcement (plain apply_commands).
+        self.watchdog_timeout = watchdog_timeout
 
     async def execute_remediation_plan(
         self, plan: RemediationPlan, dry_run: bool = True, stop_on_error: bool = True
@@ -718,10 +720,20 @@ class RemediationExecutor:
                 if not action.device.is_connected:
                     await action.device.connect()
 
-                # Execute the commands
-                command_results = await action.device.apply_commands(
-                    action.commands, dry_run=False
-                )
+                # Execute the commands. When a watchdog timeout is configured,
+                # roll back on the host itself so a dropped session cannot
+                # leave a lockout rule in place.
+                if self.watchdog_timeout and hasattr(
+                    action.device, "apply_transaction"
+                ):
+                    txn = await action.device.apply_transaction(
+                        action.commands, timeout=self.watchdog_timeout
+                    )
+                    command_results = [txn]
+                else:
+                    command_results = await action.device.apply_commands(
+                        action.commands, dry_run=False
+                    )
 
                 # Check if all commands succeeded
                 success = all(result.success for result in command_results)

@@ -185,5 +185,36 @@ class TestComplianceIssue:
         assert issue.expected_config is None
 
 
+class MockDevice:
+    """In-memory firewall device returning a fixed rule set."""
+
+    def __init__(self, items):
+        self._items = items
+        self._connected = False
+
+    @property
+    def is_connected(self):
+        return self._connected
+
+    async def connect(self):
+        self._connected = True
+        return True
+
+    async def get_configuration(self):
+        from audit_agent.devices.base import DeviceConfiguration, DeviceInfo
+
+        return DeviceConfiguration(
+            device_info=DeviceInfo(
+                hostname="mock", vendor="mock", model="mock", version="1"
+            ),
+            raw_config="\n".join(item.content for item in self._items),
+            parsed_items=self._items,
+            timestamp="2024-01-01T00:00:00Z",
+        )
+
+    def __str__(self):
+        return "mock-device"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
