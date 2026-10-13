@@ -1,6 +1,6 @@
 paramiko==5.0.0
 requests==2.34.2
-pydantic==2.13.4
+pydantic==2.14.0
 rich==15.0.0
 typer==0.27.0
 pyyaml==6.0.3
